@@ -1,0 +1,36 @@
+name: Validate Skill
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Validate metadata and source files
+        run: |
+          grep -q '^name: lanshu-create-ai-presenter-video$' SKILL.md
+          grep -q 'lanshu-create-ai-presenter-video' agents/openai.yaml
+          python3 -m py_compile scripts/init_job.py scripts/preflight.py
+          python3 scripts/init_job.py --help >/dev/null
+          bash -n scripts/finalize_delivery.sh
+          python3 -m json.tool assets/job.template.json >/dev/null
+
+      - name: Check repository portability
+        run: |
+          if grep -R -n '/Users/' README.md SKILL.md agents assets references scripts; then
+            echo 'Machine-specific home path found.' >&2
+            exit 1
+          fi
