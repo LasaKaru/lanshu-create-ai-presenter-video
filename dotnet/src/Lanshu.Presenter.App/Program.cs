@@ -304,6 +304,13 @@ app.MapPost("/api/jobs", async (HttpRequest request, SettingsStore store) =>
             MusicPath = Text(body, "music"),
             CaptionsEnabled = Boolean(body, "captions", true),
             KeywordCalloutsEnabled = Boolean(body, "callouts", true),
+            PunchInsEnabled = Boolean(body, "punchIns", true),
+            PublishingKit = Boolean(body, "publishingKit", true),
+            AdditionalAspects = body["additionalAspects"] is JsonArray extra
+                ? extra.Select(item => item?.GetValue<string>() ?? string.Empty)
+                    .Where(item => !string.IsNullOrWhiteSpace(item))
+                    .ToList()
+                : Array.Empty<string>(),
             RightsConfirmed = Boolean(body, "rightsConfirmed", false),
             AdultPresenterConfirmed = Boolean(body, "adultConfirmed", false),
             RemoteUploadApproved = Boolean(body, "remoteUploadApproved", false),

@@ -46,6 +46,29 @@ public sealed class TimelineClip
         : ClipKind.Presenter;
 }
 
+/// <summary>
+/// A short, eased scale push tied to a spoken emphasis. Small on purpose: the point is to back
+/// the word, not to announce the effect.
+/// </summary>
+public sealed class PunchIn
+{
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = string.Empty;
+
+    [JsonPropertyName("start_s")]
+    public double StartSeconds { get; set; }
+
+    [JsonPropertyName("duration_s")]
+    public double DurationSeconds { get; set; }
+
+    /// <summary>Peak scale, e.g. 1.045 for a 4.5% push.</summary>
+    [JsonPropertyName("scale")]
+    public double Scale { get; set; } = 1.045;
+
+    [JsonIgnore]
+    public double EndSeconds => StartSeconds + DurationSeconds;
+}
+
 public sealed class RenderTimeline
 {
     [JsonPropertyName("duration_s")]
@@ -84,6 +107,10 @@ public sealed class RenderTimeline
     [JsonPropertyName("clips")]
     public List<TimelineClip> Clips { get; set; } = new();
 
+    /// <summary>Moments where the frame pushes in slightly to back a spoken emphasis.</summary>
+    [JsonPropertyName("punch_ins")]
+    public List<PunchIn> PunchIns { get; set; } = new();
+
     public string ToMarkdown()
     {
         var builder = new StringBuilder();
@@ -101,6 +128,18 @@ public sealed class RenderTimeline
         {
             builder.AppendLine(CultureInfo.InvariantCulture,
                 $"| {clip.Kind} | {clip.AuthoredStartSeconds:0.000}s | {clip.AuthoredDurationSeconds:0.000}s | {clip.SourceOffsetSeconds:0.000}s | {Path.GetFileName(clip.Source)} |");
+        }
+
+        if (PunchIns.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("| Punch-in | Start | Duration | Scale |");
+            builder.AppendLine("|----------|-------|----------|-------|");
+            foreach (var punch in PunchIns)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture,
+                    $"| {punch.Label} | {punch.StartSeconds:0.000}s | {punch.DurationSeconds:0.000}s | {punch.Scale:0.000} |");
+            }
         }
 
         builder.AppendLine();

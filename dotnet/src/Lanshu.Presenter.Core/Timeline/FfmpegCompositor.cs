@@ -138,8 +138,29 @@ public sealed class FfmpegCompositor
         var fps = timeline.Fps;
         var portrait = height > width;
 
-        filter.Append(CultureInfo.InvariantCulture,
-            $"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,crop={width}:{height},setsar=1,fps={fps},format=yuv420p[base];");
+        // The plate is scaled to cover, then cropped by a time-varying window. Cropping a slightly
+        // larger source is how the punch-in happens: a smaller crop window shown at the same output
+        // size reads as a push in, and the source keeps its full detail throughout.
+        var punchScale = timeline.PunchIns.Count > 0
+            ? timeline.PunchIns.Max(punch => punch.Scale)
+            : 1.0;
+        var oversampleWidth = EnsureEven((int)Math.Ceiling(width * punchScale));
+        var oversampleHeight = EnsureEven((int)Math.Ceiling(height * punchScale));
+
+        filter.Append(string.Format(
+            CultureInfo.InvariantCulture,
+            "[0:v]scale={0}:{1}:force_original_aspect_ratio=increase:flags=lanczos,crop={0}:{1},setsar=1,fps={2},format=yuv420p[over];",
+            oversampleWidth,
+            oversampleHeight,
+            fps));
+
+        filter.Append(string.Format(
+            CultureInfo.InvariantCulture,
+            "[over]crop=w='{0}':h='{1}':x='(iw-ow)/2':y='(ih-oh)/2',scale={2}:{3}:flags=bilinear,setsar=1[base];",
+            BuildPunchExpression(timeline, oversampleWidth, width),
+            BuildPunchExpression(timeline, oversampleHeight, height),
+            width,
+            height));
 
         var current = "base";
         for (var index = 0; index < inserts.Count; index++)
@@ -221,6 +242,49 @@ public sealed class FfmpegCompositor
         }
 
         return filter.ToString();
+    }
+
+    /// <summary>
+    /// Builds a crop dimension expression over time: the full oversampled size at rest, easing to
+    /// the tighter window across each punch-in and back out again. A raised cosine keeps both the
+    /// start and the end of the move soft, so nothing snaps.
+    /// </summary>
+    internal static string BuildPunchExpression(RenderTimeline timeline, int oversampled, int target)
+    {
+        if (timeline.PunchIns.Count == 0 || oversampled <= target)
+        {
+            return oversampled.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // Innermost value first, then wrap each punch around it as a conditional.
+        var expression = oversampled.ToString(CultureInfo.InvariantCulture);
+
+        foreach (var punch in timeline.PunchIns)
+        {
+            var start = punch.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+            var end = punch.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+            var span = Math.Max(0.1, punch.DurationSeconds).ToString("0.###", CultureInfo.InvariantCulture);
+
+            // Tightest crop this punch reaches, clamped so it can never exceed the oversampled source.
+            var tightest = Math.Max(target, (int)Math.Round(oversampled / Math.Max(1.0, punch.Scale)));
+            var travel = oversampled - tightest;
+            if (travel <= 0)
+            {
+                continue;
+            }
+
+            var eased = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}-{1}*(0.5-0.5*cos(2*PI*(t-{2})/{3}))",
+                oversampled,
+                travel,
+                start,
+                span);
+
+            expression = $"if(between(t,{start},{end}),{eased},{expression})";
+        }
+
+        return expression;
     }
 
     private static int EnsureEven(int value) => value % 2 == 0 ? value : value + 1;

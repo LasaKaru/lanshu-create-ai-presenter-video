@@ -152,6 +152,17 @@ public sealed class JobCreative
     [JsonPropertyName("keyword_callouts_enabled")]
     public bool KeywordCalloutsEnabled { get; set; } = true;
 
+    /// <summary>Push the frame in slightly on each keyword beat.</summary>
+    [JsonPropertyName("punch_ins_enabled")]
+    public bool PunchInsEnabled { get; set; } = true;
+
+    /// <summary>Extra aspect ratios to deliver from the same locked narration.</summary>
+    [JsonPropertyName("additional_aspects")]
+    public List<string> AdditionalAspects { get; set; } = new();
+
+    [JsonPropertyName("publishing_kit")]
+    public bool PublishingKit { get; set; } = true;
+
     [JsonPropertyName("caption_font")]
     public string CaptionFont { get; set; } = string.Empty;
 
@@ -331,6 +342,7 @@ public sealed class CapabilityRecord
     [JsonPropertyName("notes")]
     public string Notes { get; set; } = string.Empty;
 
+    [JsonIgnore]
     public bool IsRecorded => !string.IsNullOrWhiteSpace(Provider);
 }
 
@@ -392,6 +404,18 @@ public sealed class JobArtifacts
 
     [JsonPropertyName("contact_sheet")]
     public string ContactSheet { get; set; } = string.Empty;
+
+    [JsonPropertyName("alternate_masters")]
+    public List<string> AlternateMasters { get; set; } = new();
+
+    [JsonPropertyName("thumbnails")]
+    public List<string> Thumbnails { get; set; } = new();
+
+    [JsonPropertyName("chapters")]
+    public string Chapters { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
 }
 
 public sealed class JobQa

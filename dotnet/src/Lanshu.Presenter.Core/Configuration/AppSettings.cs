@@ -120,8 +120,13 @@ public sealed class PresenterSettings
     [JsonPropertyName("motion")]
     public MotionPlateSettings Motion { get; set; } = new();
 
+    /// <summary>A lip-sync API reached over HTTP.</summary>
     [JsonPropertyName("lipsync")]
     public RemoteJobSettings LipSync { get; set; } = new();
+
+    /// <summary>A lip-sync tool installed on this machine, run as a subprocess.</summary>
+    [JsonPropertyName("local_lipsync")]
+    public LocalLipSyncSettings LocalLipSync { get; set; } = new();
 }
 
 /// <summary>
@@ -195,6 +200,39 @@ public sealed class RemoteJobSettings
 
     public bool IsConfigured =>
         Enabled && !string.IsNullOrWhiteSpace(SubmitUrl) && !string.IsNullOrWhiteSpace(RequestTemplate);
+}
+
+/// <summary>
+/// A locally installed lip-sync tool. Command and arguments are a template so Wav2Lip,
+/// SadTalker, video-retalking or anything else with a CLI works without a code change.
+/// </summary>
+public sealed class LocalLipSyncSettings
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("provider")]
+    public string Provider { get; set; } = string.Empty;
+
+    /// <summary>Executable to run, e.g. "python" or an absolute path to one.</summary>
+    [JsonPropertyName("command")]
+    public string Command { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whitespace-separated arguments. Placeholders: {{VIDEO}} {{AUDIO}} {{IMAGE}} {{OUTPUT}}
+    /// {{OUTPUT_DIR}} {{CHECKPOINT}}.
+    /// </summary>
+    [JsonPropertyName("arguments")]
+    public string Arguments { get; set; } = string.Empty;
+
+    [JsonPropertyName("working_directory")]
+    public string WorkingDirectory { get; set; } = string.Empty;
+
+    [JsonPropertyName("checkpoint_path")]
+    public string CheckpointPath { get; set; } = string.Empty;
+
+    [JsonPropertyName("timeout_s")]
+    public double TimeoutSeconds { get; set; } = 1800;
 }
 
 public sealed class MotionPlateSettings

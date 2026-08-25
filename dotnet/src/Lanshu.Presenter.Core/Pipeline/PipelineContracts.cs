@@ -42,6 +42,10 @@ public sealed record PipelineResult
 
     public string PreviewPath { get; init; } = string.Empty;
 
+    public List<string> AlternateMasters { get; init; } = new();
+
+    public List<string> Thumbnails { get; init; } = new();
+
     public double DurationSeconds { get; init; }
 
     public bool QaPassed { get; init; }

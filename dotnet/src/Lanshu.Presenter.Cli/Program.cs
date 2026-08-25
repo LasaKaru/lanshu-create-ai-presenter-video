@@ -74,6 +74,9 @@ async Task<int> InitAsync()
         MusicPath = line.Value("music"),
         CaptionsEnabled = !line.Flag("no-captions"),
         KeywordCalloutsEnabled = !line.Flag("no-callouts"),
+        PunchInsEnabled = !line.Flag("no-punch-ins"),
+        PublishingKit = !line.Flag("no-publishing-kit"),
+        AdditionalAspects = line.Values("also-aspect"),
         RightsConfirmed = line.Flag("rights-confirmed"),
         AdultPresenterConfirmed = line.Flag("adult-presenter-confirmed"),
         RemoteUploadApproved = line.Flag("remote-upload-approved"),
@@ -187,6 +190,10 @@ async Task<int> RunAsync()
             Console.WriteLine("Share:   " + result.SharePath);
             Console.WriteLine("Cover:   " + result.CoverPath);
             Console.WriteLine("Contact: " + result.ContactSheetPath);
+            foreach (var alternate in result.AlternateMasters)
+            {
+                Console.WriteLine("Also:    " + alternate);
+            }
             return result.QaPassed ? 0 : 1;
 
         case PipelineOutcome.Cancelled:
@@ -477,6 +484,9 @@ int Help(int exitCode)
           --style/--audience/--cta/--watermark/--accent/--music
           --no-captions              Skip burned-in captions
           --no-callouts              Skip keyword callouts
+          --no-punch-ins             Skip the emphasis push on keyword beats
+          --also-aspect <ratio>      Repeatable. Deliver this ratio too, from the same narration
+          --no-publishing-kit        Skip thumbnails, chapter markers and the description
           --review-script            Pause after drafting so the narration can be edited
           --reviewed                 Record that you looked at the image yourself
           --rights-confirmed --adult-presenter-confirmed --remote-upload-approved

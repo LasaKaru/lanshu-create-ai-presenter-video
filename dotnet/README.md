@@ -82,6 +82,58 @@ state or overwrites the accepted presenter plate.
 
 Set the proxy's short edge in Settings; 640 is the default.
 
+## Lip-sync
+
+The motion plate has no mouth movement of its own. When a lip-sync tool is available the pipeline
+applies it to the accepted plate using the exact locked narration, without extending the take —
+the repair described in `qa-recovery.md`. A locally installed tool is preferred over a paid
+endpoint; if neither is configured, or the repair fails, the plate is kept and the job record says
+so rather than claiming sync it does not have.
+
+Local tools are configured as a command template, so Wav2Lip, SadTalker, video-retalking or
+anything else with a CLI works with no code change:
+
+```json
+{
+  "command": "python",
+  "arguments": "inference.py --checkpoint_path {{CHECKPOINT}} --face {{VIDEO}} --audio {{AUDIO}} --outfile {{OUTPUT}}",
+  "working_directory": "/path/to/Wav2Lip",
+  "checkpoint_path": "/path/to/wav2lip_gan.pth"
+}
+```
+
+Placeholders: `{{VIDEO}}` `{{AUDIO}}` `{{IMAGE}}` `{{OUTPUT}}` `{{OUTPUT_DIR}}` `{{CHECKPOINT}}`.
+Arguments are split on whitespace *before* substitution, so a path containing spaces stays one
+argument. Nothing is downloaded automatically — these tools carry multi-gigabyte weights and their
+own licences, so you install one and point the studio at it.
+
+Which generator produced the motion and which tool synced the mouth are recorded as separate
+capabilities, because they are separate facts.
+
+## Emphasis punch-ins
+
+Each keyword callout also gets a small eased push of the frame, bound to the same spoken anchor, so
+an emphasis beat reads visually as well as textually. Pushes that would overlap are dropped rather
+than stacked — a frame that never settles reads as a wobble instead of emphasis. Turn them off with
+`--no-punch-ins`.
+
+## Multi-aspect delivery and the publishing kit
+
+`--also-aspect 16:9 --also-aspect 1:1` delivers extra ratios from the same locked narration. The
+presenter plate and caption timings are reused unchanged; only the frame geometry and the caption
+layout are rebuilt, because callouts and captions sit in different safe regions per orientation. So
+every version stays on one clock and each gets its own master, share copy, contact sheet and QA.
+
+Alongside the video you get three thumbnail variants — accent bar, top scrim, and an oversized
+stamp — rendered from a **clean frame of the presenter plate** rather than the delivered cover,
+which already carries burned-in captions.
+
+Chapter markers and a description are written from the measured chapter times. Markers are only
+emitted when they satisfy YouTube's rules (first at 0:00, at least three, each at least ten
+seconds); otherwise the file explains why and lists them commented out, because a chapter list that
+breaks those rules is silently ignored and looks like a fault in the video rather than the
+metadata.
+
 ## Hardware encoding
 
 Renders use NVENC, Quick Sync, VideoToolbox or AMF when one of them actually works on the machine,
@@ -196,7 +248,8 @@ lanshu run --job-dir ~/.lanshu-presenter/jobs/explain-context-engineering-202608
 ```
 
 Add `--preview` to `run` for the fast proxy, and `--review-script` to `init` to pause for a script
-review (approve it with `lanshu approve --script`).
+review (approve it with `lanshu approve --script`). `--also-aspect` is repeatable;
+`--no-punch-ins` and `--no-publishing-kit` turn off the extras.
 
 Other commands: `preflight`, `approve`, `finalize`, `voices`, `jobs`, `config`, `version`.
 `lanshu` with no arguments prints the full reference.

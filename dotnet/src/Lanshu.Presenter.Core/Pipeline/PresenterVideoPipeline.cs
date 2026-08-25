@@ -247,15 +247,45 @@ public sealed class PresenterVideoPipeline
                         cancellationToken)
                     .ConfigureAwait(false);
 
+            }
+
+            // Which generator produced the motion is a separate fact from which tool synced the
+            // mouth, so the plate's own provider is captured before any repair replaces it.
+            var generatorPlate = plate;
+
+            // A motion plate has no mouth sync of its own; a lip-sync tool can supply it while
+            // preserving the accepted motion, which is exactly the repair qa-recovery.md describes.
+            if (!plate.HasSynchronizedMouth && !options.Preview)
+            {
+                var repaired = await presenterRouter
+                    .ApplyLipSyncAsync(paths, job, plate, narration.AudioPath, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (repaired.HasSynchronizedMouth)
+                {
+                    Report("presenter_generated", $"Lip-sync applied via {repaired.Provider}", 0.60);
+                    job.Capabilities.LipsyncRepair.Provider = repaired.Provider;
+                    job.Capabilities.LipsyncRepair.Model = repaired.Model;
+                    job.Capabilities.LipsyncRepair.TaskIds = repaired.TaskIds.ToList();
+                    job.Capabilities.LipsyncRepair.Notes = "mouth timing replaced against the locked narration";
+                    plate = repaired;
+                }
+            }
+
+            if (!plate.HasSynchronizedMouth)
+            {
                 warnings.Add(
-                    "The presenter track is an animated motion plate rendered from the still image, not a lip-synced talking head. Configure a talking-head provider in Settings for synchronized mouth movement.");
+                    "The presenter track is an animated motion plate rendered from the still image, not a lip-synced talking head. Configure a lip-sync tool or a talking-head provider in Settings for synchronized mouth movement.");
             }
 
             if (options.Preview)
             {
                 Report("rendered", "Rendering the preview composition", 0.70);
                 var previewTimeline = await new TimelineBuilder(ffmpeg)
-                    .BuildAsync(paths, job, script, plate, narration, subtitlePath, cancellationToken)
+                    .BuildAsync(
+                        paths, job, script, plate, narration, subtitlePath, cancellationToken,
+                        captionPlan.Callouts,
+                        job.Creative.PunchInsEnabled)
                     .ConfigureAwait(false);
                 previewTimeline.Width = renderWidth;
                 previewTimeline.Height = renderHeight;
@@ -285,12 +315,14 @@ public sealed class PresenterVideoPipeline
                 };
             }
 
-            job.Capabilities.MainPresenter.Provider = plate.Provider;
-            job.Capabilities.MainPresenter.Model = plate.Model;
-            job.Capabilities.MainPresenter.TaskIds = plate.TaskIds.ToList();
-            job.Capabilities.MainPresenter.Notes = plate.HasSynchronizedMouth
+            job.Capabilities.MainPresenter.Provider = generatorPlate.Provider;
+            job.Capabilities.MainPresenter.Model = generatorPlate.Model;
+            job.Capabilities.MainPresenter.TaskIds = generatorPlate.TaskIds.ToList();
+            job.Capabilities.MainPresenter.Notes = generatorPlate.HasSynchronizedMouth
                 ? "audio-driven talking head"
-                : "animated motion plate; mouth is not audio-driven";
+                : plate.HasSynchronizedMouth
+                    ? $"animated motion plate with mouth timing supplied by {plate.Provider}"
+                    : "animated motion plate; mouth is not audio-driven";
             job.Artifacts.PresenterPlate = paths.Relative(plate.Path);
             _jobs.Advance(paths, job, JobState.PresenterGenerated, $"presenter generated via {plate.Provider}");
             Report("presenter_generated", $"Presenter plate ready ({plate.DurationSeconds:0.00}s)", 0.62);
@@ -298,7 +330,10 @@ public sealed class PresenterVideoPipeline
             // 6. Composition -----------------------------------------------------------
             Report("composition_checked", "Building the timeline", 0.66);
             var timeline = await new TimelineBuilder(ffmpeg)
-                .BuildAsync(paths, job, script, plate, narration, subtitlePath, cancellationToken)
+                .BuildAsync(
+                    paths, job, script, plate, narration, subtitlePath, cancellationToken,
+                    captionPlan.Callouts,
+                    job.Creative.PunchInsEnabled)
                 .ConfigureAwait(false);
             timeline.FontsDirectory = string.IsNullOrWhiteSpace(settings.FontsDirectory)
                 ? string.Empty
@@ -308,7 +343,7 @@ public sealed class PresenterVideoPipeline
             FileSystemUtil.WriteAtomic(Path.Combine(paths.Docs, "timeline.json"), JobJson.Serialize(timeline));
             job.Artifacts.Timeline = paths.Relative(Path.Combine(paths.Docs, "TIMELINE.md"));
             _jobs.Advance(paths, job, JobState.CompositionChecked,
-                $"timeline built: {timeline.Clips.Count} clips over {timeline.DurationSeconds:0.000}s");
+                $"timeline built: {timeline.Clips.Count} clips and {timeline.PunchIns.Count} punch-ins over {timeline.DurationSeconds:0.000}s");
 
             Report("rendered", "Rendering the composition", 0.70);
             Directory.CreateDirectory(paths.Renders);
@@ -361,6 +396,49 @@ public sealed class PresenterVideoPipeline
                 File.Copy(srtSource, srtDestination, overwrite: true);
             }
 
+            // Extra aspect ratios reuse the locked narration and the accepted presenter plate;
+            // only the frame geometry and the caption layout are rebuilt for each one.
+            var alternates = new List<string>();
+            foreach (var aspect in job.Creative.AdditionalAspects)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var alternate = await RenderAlternateAspectAsync(
+                            paths, job, script, plate, narration, captionPlan, settings, ffmpeg, aspect, stem,
+                            Report, cancellationToken)
+                        .ConfigureAwait(false);
+                    alternates.Add(alternate);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    warnings.Add($"the {aspect} version failed: {exception.Message}");
+                }
+            }
+
+            job.Artifacts.AlternateMasters = alternates.Select(paths.Relative).ToList();
+
+            if (job.Creative.PublishingKit)
+            {
+                Report("verified", "Building thumbnails and chapter markers", 0.97);
+                var kit = await new PublishingKitService(ffmpeg, Log)
+                    .BuildAsync(
+                        paths, job, script,
+                        Path.Combine(paths.Outputs, delivery.CoverFrame),
+                        stem, cancellationToken,
+                        cleanSourceVideo: plate.Path)
+                    .ConfigureAwait(false);
+
+                job.Artifacts.Thumbnails = kit.Thumbnails.Select(paths.Relative).ToList();
+                job.Artifacts.Chapters = paths.Relative(kit.ChaptersPath);
+                job.Artifacts.Description = paths.Relative(kit.DescriptionPath);
+                warnings.AddRange(kit.Notes);
+            }
+
             _jobs.Advance(paths, job, JobState.Verified,
                 qa.Ok ? "delivery verified" : "delivery finished with failing gates");
 
@@ -385,6 +463,8 @@ public sealed class PresenterVideoPipeline
                 MasterPath = Path.Combine(paths.Outputs, delivery.Master),
                 SharePath = Path.Combine(paths.Outputs, delivery.Share),
                 ContactSheetPath = Path.Combine(paths.Outputs, delivery.ContactSheet),
+                AlternateMasters = alternates,
+                Thumbnails = job.Artifacts.Thumbnails.Select(paths.Resolve).ToList(),
                 CoverPath = Path.Combine(paths.Outputs, delivery.CoverFrame),
                 CaptionsPath = File.Exists(srtDestination) ? srtDestination : string.Empty,
                 DurationSeconds = delivery.DurationSeconds,
@@ -746,6 +826,84 @@ public sealed class PresenterVideoPipeline
                 },
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Renders and finalizes one extra aspect ratio. The narration, presenter plate and caption
+    /// timings are reused unchanged — only the frame geometry and the caption layout differ, so
+    /// every version stays on the same clock.
+    /// </summary>
+    private async Task<string> RenderAlternateAspectAsync(
+        JobPaths paths,
+        JobManifest job,
+        ScriptDocument script,
+        PresenterPlate plate,
+        NarrationResult narration,
+        CaptionPlan captionPlan,
+        AppSettings settings,
+        FfmpegService ffmpeg,
+        string aspect,
+        string stem,
+        Action<string, string, double> report,
+        CancellationToken cancellationToken)
+    {
+        var (width, height) = JobService.AspectDefaults[aspect];
+        var slug = aspect.Replace(':', 'x');
+        report("verified", $"Rendering the {aspect} version", 0.95);
+
+        // Callouts and captions sit in different safe regions per orientation, so the subtitle
+        // file is rebuilt for these dimensions rather than scaled from the delivery one.
+        var assPath = Path.Combine(paths.Captions, $"captions-{slug}.ass");
+        FileSystemUtil.WriteAtomic(assPath, AssWriter.Build(captionPlan, new CaptionStyleOptions
+        {
+            Width = width,
+            Height = height,
+            FontName = string.IsNullOrWhiteSpace(job.Creative.CaptionFont)
+                ? settings.CaptionFont
+                : job.Creative.CaptionFont,
+            AccentColor = job.Creative.AccentColor,
+            Watermark = job.Creative.Watermark,
+            CaptionsEnabled = job.Creative.CaptionsEnabled,
+            CalloutsEnabled = job.Creative.KeywordCalloutsEnabled,
+            Cjk = TextUtil.IsCjk(script.Narration),
+        }));
+
+        var timeline = await new TimelineBuilder(ffmpeg)
+            .BuildAsync(
+                paths, job, script, plate, narration,
+                job.Creative.CaptionsEnabled || job.Creative.KeywordCalloutsEnabled ? assPath : string.Empty,
+                cancellationToken,
+                captionPlan.Callouts,
+                job.Creative.PunchInsEnabled)
+            .ConfigureAwait(false);
+
+        timeline.Width = width;
+        timeline.Height = height;
+        timeline.FontsDirectory = string.IsNullOrWhiteSpace(settings.FontsDirectory)
+            ? string.Empty
+            : FileSystemUtil.ExpandPath(settings.FontsDirectory);
+
+        var renderPath = Path.Combine(paths.Renders, $"rendered-{slug}.mkv");
+        FileSystemUtil.TryDelete(renderPath);
+        await new FfmpegCompositor(ffmpeg)
+            .RenderAsync(timeline, renderPath, cancellationToken)
+            .ConfigureAwait(false);
+
+        var alternateStem = $"{stem}-{slug}";
+        var alternateDelivery = await new FinalizeDeliveryService(ffmpeg)
+            .RunAsync(
+                renderPath,
+                paths.Outputs,
+                alternateStem,
+                new FinalizeDeliveryService.Options
+                {
+                    ProgramLufs = job.Voice.ProgramLufs,
+                    Overwrite = true,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return Path.Combine(paths.Outputs, alternateDelivery.Master);
     }
 
     /// <summary>

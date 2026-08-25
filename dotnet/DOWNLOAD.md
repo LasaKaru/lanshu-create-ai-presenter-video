@@ -47,6 +47,19 @@ WITHOUT ANY API KEY
   still image. It is not a lip-synced talking head, and the job record
   always says which one produced the track.
 
+EXTRAS IN EVERY RENDER
+
+  Three thumbnail variants, chapter markers, a description, and a small
+  emphasis push on each keyword beat. Ask for extra aspect ratios and they
+  are delivered from the same narration, so a 9:16 and a 16:9 cut stay in
+  sync with each other.
+
+REAL LIP-SYNC
+
+  Install Wav2Lip, SadTalker or video-retalking and point the studio at it
+  in Settings; the presenter's mouth then follows the narration. Nothing is
+  downloaded for you - those tools are large and carry their own licences.
+
 WITH API KEYS (Settings tab)
 
   Anthropic or OpenAI   full script drafting from a topic

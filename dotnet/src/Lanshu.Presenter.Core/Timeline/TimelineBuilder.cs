@@ -1,3 +1,4 @@
+using Lanshu.Presenter.Core.Captions;
 using Lanshu.Presenter.Core.Content;
 using Lanshu.Presenter.Core.Jobs;
 using Lanshu.Presenter.Core.Media;
@@ -31,7 +32,9 @@ public sealed class TimelineBuilder
         PresenterPlate plate,
         NarrationResult narration,
         string subtitlePath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<KeywordCallout>? callouts = null,
+        bool punchInsEnabled = true)
     {
         var creative = job.Creative;
         var timeline = new RenderTimeline
@@ -117,7 +120,57 @@ public sealed class TimelineBuilder
             }
         }
 
+        if (punchInsEnabled && callouts is { Count: > 0 })
+        {
+            timeline.PunchIns.AddRange(BuildPunchIns(callouts, timeline.DurationSeconds));
+        }
+
         return timeline;
+    }
+
+    /// <summary>
+    /// One push per keyword callout, starting a few frames before the word so the movement is
+    /// already underway when it lands. Pushes that would overlap are dropped rather than stacked,
+    /// because a frame that never settles reads as a wobble instead of emphasis.
+    /// </summary>
+    internal static IReadOnlyList<PunchIn> BuildPunchIns(
+        IReadOnlyList<KeywordCallout> callouts,
+        double programDuration)
+    {
+        const double lead = 0.08;
+        const double minimumGap = 0.35;
+
+        var punches = new List<PunchIn>();
+        foreach (var callout in callouts.OrderBy(callout => callout.StartSeconds))
+        {
+            var start = Math.Max(0, callout.StartSeconds - lead);
+            var duration = Math.Clamp(callout.EndSeconds - start, 0.8, 2.4);
+
+            if (start + duration > programDuration)
+            {
+                duration = programDuration - start;
+            }
+
+            if (duration < 0.6)
+            {
+                continue;
+            }
+
+            if (punches.Count > 0 && start < punches[^1].EndSeconds + minimumGap)
+            {
+                continue;
+            }
+
+            punches.Add(new PunchIn
+            {
+                Label = callout.Text,
+                StartSeconds = Math.Round(start, 3),
+                DurationSeconds = Math.Round(duration, 3),
+                Scale = 1.045,
+            });
+        }
+
+        return punches;
     }
 
     /// <summary>Chapter boundaries come from the real measured narration, not from estimates.</summary>

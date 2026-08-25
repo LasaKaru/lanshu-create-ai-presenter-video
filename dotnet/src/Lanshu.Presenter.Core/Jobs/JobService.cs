@@ -48,6 +48,12 @@ public sealed record NewJobRequest
 
     public bool KeywordCalloutsEnabled { get; init; } = true;
 
+    public bool PunchInsEnabled { get; init; } = true;
+
+    public IReadOnlyList<string> AdditionalAspects { get; init; } = Array.Empty<string>();
+
+    public bool PublishingKit { get; init; } = true;
+
     public bool RightsConfirmed { get; init; }
 
     public bool AdultPresenterConfirmed { get; init; }
@@ -174,6 +180,13 @@ public sealed class JobService
                 AccentColor = request.AccentColor,
                 CaptionsEnabled = request.CaptionsEnabled,
                 KeywordCalloutsEnabled = request.KeywordCalloutsEnabled,
+                PunchInsEnabled = request.PunchInsEnabled,
+                PublishingKit = request.PublishingKit,
+                AdditionalAspects = request.AdditionalAspects
+                    .Select(aspect => aspect.Trim())
+                    .Where(aspect => AspectDefaults.ContainsKey(aspect) && aspect != request.Aspect)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList(),
                 MusicPath = string.IsNullOrWhiteSpace(request.MusicPath)
                     ? string.Empty
                     : FileSystemUtil.ResolveExisting(request.MusicPath!, "music"),

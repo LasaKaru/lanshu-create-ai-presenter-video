@@ -157,6 +157,8 @@ public sealed class RunManager
                     captions = result.CaptionsPath,
                     pilot = result.PilotPath,
                     preview = result.PreviewPath,
+                    alternates = result.AlternateMasters,
+                    thumbnails = result.Thumbnails,
                     duration = result.DurationSeconds,
                     qaPassed = result.QaPassed,
                     warnings = result.Warnings,

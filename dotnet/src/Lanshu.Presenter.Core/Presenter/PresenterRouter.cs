@@ -103,6 +103,69 @@ public sealed class PresenterRouter
     public LipSyncRepairService CreateLipSync(JobPaths paths) =>
         new(_settings.Presenter.LipSync, _store, _httpClient, _ffmpeg, paths, _log);
 
+    public LocalLipSyncService CreateLocalLipSync(JobPaths paths) =>
+        new(_settings.Presenter.LocalLipSync, _ffmpeg, paths, _log);
+
+    /// <summary>
+    /// Replaces mouth timing on an accepted plate using the exact locked audio. A locally
+    /// installed tool is preferred over a paid endpoint; when neither is configured, or the
+    /// repair fails, the accepted plate is kept and the caller is told it has no mouth sync.
+    /// </summary>
+    public async Task<PresenterPlate> ApplyLipSyncAsync(
+        JobPaths paths,
+        JobManifest job,
+        PresenterPlate plate,
+        string audioPath,
+        CancellationToken cancellationToken = default)
+    {
+        if (plate.HasSynchronizedMouth)
+        {
+            return plate;
+        }
+
+        var outputPath = Path.Combine(paths.VideoSelected, "presenter-lipsync.mp4");
+
+        var local = CreateLocalLipSync(paths);
+        if (local.IsConfigured)
+        {
+            try
+            {
+                return await local
+                    .RepairAsync(plate.Path, audioPath, job.Input.PresenterImage, outputPath, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _log?.Invoke("Local lip-sync failed, keeping the motion plate: " + exception.Message);
+            }
+        }
+
+        var remote = CreateLipSync(paths);
+        if (remote.IsConfigured && MissingApprovals(job).Count == 0)
+        {
+            try
+            {
+                return await remote
+                    .RepairAsync(plate.Path, audioPath, outputPath, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _log?.Invoke("Remote lip-sync failed, keeping the motion plate: " + exception.Message);
+            }
+        }
+
+        return plate;
+    }
+
     /// <summary>
     /// The billing statement the skill requires before the first paid call: what is uploaded,
     /// how much is requested, the known price, the pilot size and the retry ceiling.
