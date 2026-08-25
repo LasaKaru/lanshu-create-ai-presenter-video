@@ -40,6 +40,8 @@ public sealed record PipelineResult
 
     public string PilotPath { get; init; } = string.Empty;
 
+    public string PreviewPath { get; init; } = string.Empty;
+
     public double DurationSeconds { get; init; }
 
     public bool QaPassed { get; init; }
@@ -51,6 +53,15 @@ public sealed record PipelineOptions
 {
     /// <summary>Stop after locking narration; used by the "preview the voice" action in the app.</summary>
     public bool AudioOnly { get; init; }
+
+    /// <summary>
+    /// Render a small, fast proxy instead of the delivery master. Skips the loudness pass,
+    /// the master and share encodes, the contact sheet and the acceptance gates.
+    /// </summary>
+    public bool Preview { get; init; }
+
+    /// <summary>Short edge of the proxy render, in pixels.</summary>
+    public int PreviewHeight { get; init; } = 640;
 
     /// <summary>Re-run finished stages instead of resuming from the recorded state.</summary>
     public bool Force { get; init; }

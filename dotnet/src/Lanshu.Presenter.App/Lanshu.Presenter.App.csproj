@@ -8,8 +8,6 @@
     <!-- The UI ships inside the executable so a single downloaded file is enough to run. -->
     <EnableDefaultContentItems>false</EnableDefaultContentItems>
     <!-- One downloadable file: the runtime, the pipeline and the UI all travel inside the exe. -->
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <!-- Reflection-based JSON binding is used throughout the manifest, so trimming stays off. -->

@@ -22,11 +22,23 @@ FIRST RUN
   3. Go to Create, give it a topic or paste a script, choose a presenter
      image, tick the review boxes, and press "Create and render".
 
+     "Fast preview" renders a small proxy in a fraction of the time so you
+     can check the captions and callouts before committing to a full render.
+
+     Tick "Review the script before it is spoken" to read and edit the
+     narration first. Nothing is synthesized until you approve it.
+
 WHAT YOU GET
 
   A master MP4, a smaller share copy, a cover frame, a nine-frame contact
   sheet, an .srt caption file, and a QA report, all under
   %USERPROFILE%\.lanshu-presenter\jobs\<job>\outputs.
+
+SPEED
+
+  Renders use your GPU (NVENC, Quick Sync, VideoToolbox or AMF) when one is
+  available and working, and fall back to software encoding otherwise. The
+  Environment tab shows which one was chosen.
 
 WITHOUT ANY API KEY
 

@@ -44,9 +44,23 @@ public sealed class AppSettings
     [JsonPropertyName("defaults")]
     public CreativeDefaults Defaults { get; set; } = new();
 
+    [JsonPropertyName("render")]
+    public RenderSettings Render { get; set; } = new();
+
     [JsonIgnore]
     public string ResolvedWorkspace =>
         string.IsNullOrWhiteSpace(Workspace) ? ToolLocator.DefaultWorkspace : FileSystemUtil.ExpandPath(Workspace);
+}
+
+public sealed class RenderSettings
+{
+    /// <summary>auto | software | nvenc | qsv | videotoolbox | amf</summary>
+    [JsonPropertyName("encoder")]
+    public string Encoder { get; set; } = "auto";
+
+    /// <summary>Short edge of the fast proxy preview, in pixels.</summary>
+    [JsonPropertyName("preview_height")]
+    public int PreviewHeight { get; set; } = 640;
 }
 
 public sealed class ScriptSettings
@@ -63,6 +77,10 @@ public sealed class ScriptSettings
 
     [JsonPropertyName("max_output_tokens")]
     public int MaxOutputTokens { get; set; } = 4000;
+
+    /// <summary>Pause a run after drafting so the narration can be read and edited.</summary>
+    [JsonPropertyName("review_before_audio")]
+    public bool ReviewBeforeAudio { get; set; }
 }
 
 public sealed class VoiceSettings

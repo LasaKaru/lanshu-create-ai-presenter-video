@@ -105,12 +105,12 @@ public sealed class FinalizeDeliveryService
         {
             _log?.Invoke("Encoding master");
             await EncodeAsync(renderedPath, master, Path.Combine(temporaryRoot, "master.mp4"),
-                    crf: 16, preset: "slow", audioBitrate: "256k", videoFilter, loudnorm, cancellationToken)
+                    EncodeQuality.Master, audioBitrate: "256k", videoFilter, loudnorm, cancellationToken)
                 .ConfigureAwait(false);
 
             _log?.Invoke("Encoding share copy");
             await EncodeAsync(renderedPath, share, Path.Combine(temporaryRoot, "share.mp4"),
-                    crf: 24, preset: "medium", audioBitrate: "160k", videoFilter, loudnorm, cancellationToken)
+                    EncodeQuality.Share, audioBitrate: "160k", videoFilter, loudnorm, cancellationToken)
                 .ConfigureAwait(false);
 
             _log?.Invoke("Verifying full decode");
@@ -178,31 +178,39 @@ public sealed class FinalizeDeliveryService
         string input,
         string destination,
         string temporary,
-        int crf,
-        string preset,
+        EncodeQuality quality,
         string audioBitrate,
         string videoFilter,
         string loudnorm,
         CancellationToken cancellationToken)
     {
-        var arguments = new[]
-        {
-            "-hide_banner", "-nostdin", "-loglevel", "warning", "-stats", "-y",
-            "-i", input,
-            "-map", "0:v:0", "-map", "0:a:0", "-sn", "-dn",
-            "-vf", videoFilter,
-            "-af", loudnorm,
-            "-c:v", "libx264", "-preset", preset, "-crf", crf.ToString(CultureInfo.InvariantCulture),
-            "-profile:v", "high",
-            "-pix_fmt", "yuv420p", "-tag:v", "avc1", "-fps_mode", "cfr",
-            "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
-            "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
-            "-map_metadata", "-1", "-map_chapters", "-1", "-movflags", "+faststart",
-            temporary,
-        };
+        await _ffmpeg.RunEncodeAsync(
+            $"encoding {Path.GetFileName(destination)}",
+            quality,
+            encoderArguments =>
+            {
+                var arguments = new List<string>
+                {
+                    "-hide_banner", "-nostdin", "-loglevel", "warning", "-stats", "-y",
+                    "-i", input,
+                    "-map", "0:v:0", "-map", "0:a:0", "-sn", "-dn",
+                    "-vf", videoFilter,
+                    "-af", loudnorm,
+                };
 
-        await _ffmpeg.RunCheckedAsync($"encoding {Path.GetFileName(destination)}", arguments, cancellationToken)
-            .ConfigureAwait(false);
+                arguments.AddRange(encoderArguments);
+                arguments.AddRange(new[]
+                {
+                    "-pix_fmt", "yuv420p", "-tag:v", "avc1", "-fps_mode", "cfr",
+                    "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+                    "-c:a", "aac", "-b:a", audioBitrate, "-ar", "48000", "-ac", "2",
+                    "-map_metadata", "-1", "-map_chapters", "-1", "-movflags", "+faststart",
+                    temporary,
+                });
+
+                return arguments;
+            },
+            cancellationToken).ConfigureAwait(false);
 
         if (FileSystemUtil.SafeLength(temporary) == 0)
         {

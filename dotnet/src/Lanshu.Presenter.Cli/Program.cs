@@ -91,6 +91,15 @@ async Task<int> InitAsync()
     };
 
     var paths = new JobService().Create(request);
+
+    if (line.Flag("review-script"))
+    {
+        var jobs = new JobService();
+        var manifest = jobs.Load(paths);
+        manifest.Plan.ReviewScript = true;
+        jobs.Save(paths, manifest);
+    }
+
     Console.WriteLine(JobJson.Serialize(new { job = paths.ManifestFile, state = "intake" }).TrimEnd());
 
     if (request.ManualReview is null)
@@ -136,6 +145,8 @@ async Task<int> RunAsync()
         new PipelineOptions
         {
             AudioOnly = line.Flag("audio-only"),
+            Preview = line.Flag("preview"),
+            PreviewHeight = line.Integer("preview-height", 0),
             Force = line.Flag("force"),
             Overwrite = true,
             OutputStem = line.Value("stem") ?? string.Empty,
@@ -157,8 +168,18 @@ async Task<int> RunAsync()
             Console.WriteLine();
             Console.WriteLine(result.ApprovalRequest);
             Console.WriteLine();
+            if (result.ApprovalKind == "script")
+            {
+                Console.WriteLine("Edit the narration in: " + Path.Combine(paths.Docs, "script.json"));
+            }
+
             Console.WriteLine($"Approve with: lanshu approve --job-dir \"{paths.Root}\" --{result.ApprovalKind.Replace('_', '-')}");
             return 3;
+
+        case PipelineOutcome.Completed when !string.IsNullOrEmpty(result.PreviewPath):
+            Console.WriteLine();
+            Console.WriteLine("Preview: " + result.PreviewPath);
+            return 0;
 
         case PipelineOutcome.Completed:
             Console.WriteLine();
@@ -187,6 +208,13 @@ int Approve()
         job.Plan.PaidGenerationApproved = true;
         job.Record("plan", "paid generation approved");
         Console.WriteLine("Paid generation approved.");
+    }
+
+    if (line.Flag("script"))
+    {
+        job.Plan.ScriptApproved = true;
+        job.Record("plan", "script approved");
+        Console.WriteLine("Script approved.");
     }
 
     if (line.Flag("pilot"))
@@ -411,7 +439,8 @@ int Help(int exitCode)
         COMMANDS
           init          Create a job directory from a topic or a script and a presenter image
           run           Run the pipeline for a job, resuming from its last completed stage
-          approve       Record an approval (paid generation, pilot, rights, upload, review)
+                        (--preview renders a fast low-resolution proxy instead)
+          approve       Record an approval (script, paid generation, pilot, rights, upload, review)
           preflight     Validate a job's inputs and write qa/reports/preflight.json
           finalize      Master, share, verify and contact-sheet an existing render
           doctor        Report the environment; --install downloads a portable FFmpeg
@@ -428,6 +457,7 @@ int Help(int exitCode)
                       --duration 60 --aspect 9:16 --reviewed --rights-confirmed \
                       --adult-presenter-confirmed
 
+          lanshu run --preview --job-dir ~/.lanshu-presenter/jobs/explain-context-engineering-20260825-1200
           lanshu run --job-dir ~/.lanshu-presenter/jobs/explain-context-engineering-20260825-1200
 
           lanshu finalize --input renders/rendered.mkv --output outputs --stem my-video
@@ -447,6 +477,7 @@ int Help(int exitCode)
           --style/--audience/--cta/--watermark/--accent/--music
           --no-captions              Skip burned-in captions
           --no-callouts              Skip keyword callouts
+          --review-script            Pause after drafting so the narration can be edited
           --reviewed                 Record that you looked at the image yourself
           --rights-confirmed --adult-presenter-confirmed --remote-upload-approved
           --voice-clone-approved

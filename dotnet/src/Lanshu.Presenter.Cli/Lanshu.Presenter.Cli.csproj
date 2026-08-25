@@ -5,8 +5,6 @@
     <RootNamespace>Lanshu.Presenter.Cli</RootNamespace>
     <AssemblyName>lanshu</AssemblyName>
     <RollForward>Major</RollForward>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <PublishTrimmed>false</PublishTrimmed>

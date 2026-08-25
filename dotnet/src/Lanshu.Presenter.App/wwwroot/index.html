@@ -157,6 +157,7 @@
           <div class="row toggles">
             <label><input type="checkbox" id="captions" checked> Burn in captions</label>
             <label><input type="checkbox" id="callouts" checked> Keyword callouts</label>
+            <label><input type="checkbox" id="reviewScript"> Review the script before it is spoken</label>
           </div>
         </div>
 
@@ -181,6 +182,7 @@
 
         <div class="card actions">
           <button class="primary" id="createRun">Create and render</button>
+          <button class="ghost" id="createPreview">Fast preview</button>
           <button class="ghost" id="createOnly">Create job only</button>
           <p class="hint" id="createHint"></p>
         </div>
@@ -360,6 +362,29 @@
         </div>
 
         <div class="card">
+          <h2>Rendering</h2>
+          <div class="row">
+            <div class="field grow">
+              <label for="renderEncoder">Video encoder</label>
+              <select id="renderEncoder">
+                <option value="auto">Auto — hardware when it works</option>
+                <option value="software">Software (libx264)</option>
+                <option value="nvenc">NVIDIA NVENC</option>
+                <option value="qsv">Intel Quick Sync</option>
+                <option value="videotoolbox">Apple VideoToolbox</option>
+                <option value="amf">AMD AMF</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="previewHeight">Preview short edge</label>
+              <input id="previewHeight" type="number" min="160" max="1080" step="80" value="640">
+            </div>
+          </div>
+          <p class="hint">Hardware encoders are probed before use and fall back to software automatically if they fail mid-render.</p>
+          <label class="inline"><input type="checkbox" id="reviewBeforeAudio"> Always review the script before narration is synthesized</label>
+        </div>
+
+        <div class="card">
           <h2>Paths</h2>
           <label for="workspace">Workspace</label>
           <input id="workspace" type="text">
@@ -402,6 +427,7 @@
   <div class="progress"><div class="progress-fill" id="runFill"></div></div>
   <pre class="runlog" id="runLog"></pre>
   <div id="runResult"></div>
+  <div id="scriptEditor" hidden></div>
 </div>
 
 <div class="toast" id="toast" hidden></div>

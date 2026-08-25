@@ -45,6 +45,52 @@ public sealed class FfmpegService
 
     public MediaToolset Toolset => _toolset;
 
+    /// <summary>
+    /// The encoder chosen for this run. Defaults to software so any caller that never resolves
+    /// one still produces a correct encode.
+    /// </summary>
+    public VideoEncoderProfile Encoder { get; set; } = VideoEncoderProfile.Software;
+
+    /// <summary>
+    /// Runs an encode whose video codec flags come from <see cref="Encoder"/>. A hardware
+    /// encoder can pass its start-up probe and still fail mid-run — a busy GPU, a driver reset,
+    /// a resolution it will not accept — so a hardware failure is retried once in software
+    /// rather than failing the job.
+    /// </summary>
+    public async Task RunEncodeAsync(
+        string what,
+        EncodeQuality quality,
+        Func<IReadOnlyList<string>, IReadOnlyList<string>> buildArguments,
+        CancellationToken cancellationToken = default,
+        string? workingDirectory = null)
+    {
+        var result = await RunAsync(buildArguments(Encoder.Arguments(quality)), cancellationToken, workingDirectory)
+            .ConfigureAwait(false);
+
+        if (result.Success)
+        {
+            return;
+        }
+
+        if (!Encoder.IsHardware)
+        {
+            result.EnsureSuccess(what);
+            return;
+        }
+
+        _log?.Invoke(
+            $"{Encoder.DisplayName} failed during {what}; retrying with software encoding. " +
+            ProcessResult.Tail(result.StandardError, 3));
+
+        Encoder = VideoEncoderProfile.Software;
+        var retry = await RunAsync(
+                buildArguments(VideoEncoderProfile.Software.Arguments(quality)),
+                cancellationToken,
+                workingDirectory)
+            .ConfigureAwait(false);
+        retry.EnsureSuccess(what);
+    }
+
     public async Task<MediaProbe> ProbeAsync(string path, CancellationToken cancellationToken = default)
     {
         var arguments = new[]

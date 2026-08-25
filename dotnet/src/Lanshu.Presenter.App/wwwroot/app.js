@@ -145,6 +145,7 @@ function collectJob() {
     accentColor: $('accentColor').value,
     captions: $('captions').checked,
     callouts: $('callouts').checked,
+    reviewScript: $('reviewScript').checked,
     voiceId: $('voiceId').value,
     rate: Number($('rate').value) || 1,
     imageViewed: $('imageViewed').checked,
@@ -170,13 +171,14 @@ function validate(job) {
   return '';
 }
 
-async function createJob(thenRun) {
+async function createJob(thenRun, preview) {
   const job = collectJob();
   const problem = validate(job);
   if (problem) { $('createHint').textContent = problem; toast(problem, 5000); return; }
 
   $('createHint').textContent = 'Creating the job…';
   $('createRun').disabled = true;
+  $('createPreview').disabled = true;
   $('createOnly').disabled = true;
 
   try {
@@ -184,28 +186,35 @@ async function createJob(thenRun) {
     state.selectedJob = created.directory;
     $('createHint').textContent = `Created in ${created.directory}`;
     await loadJobs();
-    if (thenRun) await startRun(created.directory);
+    if (thenRun) await startRun(created.directory, { preview });
   } catch (error) {
     $('createHint').textContent = error.message;
     toast(error.message, 6000);
   } finally {
     $('createRun').disabled = false;
+    $('createPreview').disabled = false;
     $('createOnly').disabled = false;
   }
 }
 
-$('createRun').addEventListener('click', () => createJob(true));
-$('createOnly').addEventListener('click', () => createJob(false));
+$('createRun').addEventListener('click', () => createJob(true, false));
+$('createPreview').addEventListener('click', () => createJob(true, true));
+$('createOnly').addEventListener('click', () => createJob(false, false));
 
 /* ---------------------------------------------------------------------- runs */
 
-async function startRun(directory) {
-  const started = await api('/api/jobs/run', { method: 'POST', body: JSON.stringify({ directory }) });
+async function startRun(directory, options = {}) {
+  const started = await api('/api/jobs/run', {
+    method: 'POST',
+    body: JSON.stringify({ directory, preview: Boolean(options.preview) }),
+  });
   openRunbar(started.runId, directory);
 }
 
 function openRunbar(runId, directory) {
   $('runbar').hidden = false;
+  $('scriptEditor').hidden = true;
+  $('scriptEditor').innerHTML = '';
   $('runLog').textContent = '';
   $('runResult').innerHTML = '';
   $('runFill').style.width = '0%';
@@ -257,7 +266,8 @@ function renderRunResult(payload, directory) {
         <pre>${escapeHtml(payload.approvalRequest)}</pre>
         ${payload.pilot ? `<video controls preload="metadata" src="${fileUrl(payload.pilot)}"></video>` : ''}
         <div class="artifacts">
-          <button class="primary small" id="approveButton">Approve and continue</button>
+          <button class="primary small" id="approveButton">${
+            payload.approvalKind === 'script' ? 'Approve the script and continue' : 'Approve and continue'}</button>
         </div>
       </div>`;
     $('approveButton').addEventListener('click', async () => {
@@ -268,12 +278,35 @@ function renderRunResult(payload, directory) {
       });
       await startRun(directory);
     });
+
+    if (payload.approvalKind === 'script') openScriptEditor(directory);
     return;
   }
 
   if (payload.outcome !== 'Completed') {
     $('runStage').textContent = payload.outcome === 'Cancelled' ? 'Cancelled' : 'Failed';
     $('runResult').innerHTML = `<div class="callout bad"><strong>${escapeHtml(payload.message)}</strong></div>`;
+    return;
+  }
+
+  if (payload.preview) {
+    $('runStage').textContent = 'Preview';
+    $('runFill').style.width = '100%';
+    $('runResult').innerHTML = `
+      <div class="callout good">
+        <strong>${escapeHtml(payload.message)}</strong>
+        <video controls preload="metadata" src="${fileUrl(payload.preview)}"></video>
+        <div class="artifacts">
+          <button class="primary small" id="renderFull">Render the delivery master</button>
+          <button class="chip" id="editScriptFromPreview">Edit the script</button>
+        </div>
+        ${warnings ? `<ul class="notes">${warnings}</ul>` : ''}
+      </div>`;
+    $('renderFull').addEventListener('click', async () => {
+      $('renderFull').disabled = true;
+      await startRun(directory);
+    });
+    $('editScriptFromPreview').addEventListener('click', () => openScriptEditor(directory));
     return;
   }
 
@@ -310,6 +343,132 @@ $('closeRun').addEventListener('click', () => {
   if (state.runSource) { state.runSource.close(); state.runSource = null; }
   $('runbar').hidden = true;
 });
+
+/* ------------------------------------------------------------- script editor */
+
+const ROLES = ['hook', 'beat', 'synthesis', 'close'];
+
+async function openScriptEditor(directory) {
+  const panel = $('scriptEditor');
+  panel.hidden = false;
+  panel.innerHTML = '<p class="hint">Loading the script…</p>';
+
+  let data;
+  try {
+    data = await api(`/api/job/script?dir=${encodeURIComponent(directory)}`);
+  } catch (error) {
+    panel.innerHTML = `<div class="callout bad">${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  const render = (beats) => {
+    panel.innerHTML = `
+      <div class="script-head">
+        <strong>Script</strong>
+        <span class="hint" id="scriptEstimate"></span>
+      </div>
+      <div id="beatList">${beats.map((beat, index) => beatRow(beat, index)).join('')}</div>
+      <div class="artifacts">
+        <button class="ghost small" id="addBeat">Add a beat</button>
+        <button class="primary small" id="saveScript">Save and approve</button>
+        <button class="ghost small" id="saveScriptOnly">Save only</button>
+      </div>
+      <p class="hint" id="scriptHint"></p>`;
+
+    updateEstimate();
+
+    panel.querySelectorAll('textarea[data-narration]').forEach((area) => {
+      area.addEventListener('input', updateEstimate);
+    });
+
+    panel.querySelectorAll('[data-remove-beat]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const current = collectBeats();
+        current.splice(Number(button.dataset.removeBeat), 1);
+        render(current.length > 0 ? current : [{ role: 'hook', title: '', narration: '', keyword: '' }]);
+      });
+    });
+
+    $('addBeat').addEventListener('click', () => {
+      const current = collectBeats();
+      current.splice(Math.max(0, current.length - 1), 0, { role: 'beat', title: '', narration: '', keyword: '' });
+      render(current);
+    });
+
+    $('saveScript').addEventListener('click', () => saveScript(true));
+    $('saveScriptOnly').addEventListener('click', () => saveScript(false));
+  };
+
+  const beatRow = (beat, index) => `
+    <div class="beat" data-beat="${index}">
+      <div class="row">
+        <div class="field">
+          <label>Role</label>
+          <select data-role>${ROLES.map((role) =>
+            `<option ${role === beat.role ? 'selected' : ''}>${role}</option>`).join('')}</select>
+        </div>
+        <div class="field grow">
+          <label>Title</label>
+          <input type="text" data-title value="${escapeHtml(beat.title || '')}">
+        </div>
+        <div class="field grow">
+          <label>Callout keyword</label>
+          <input type="text" data-keyword value="${escapeHtml(beat.keyword || '')}">
+        </div>
+        <button class="ghost small" data-remove-beat="${index}" title="Remove this beat">×</button>
+      </div>
+      <label>Spoken narration</label>
+      <textarea rows="3" data-narration>${escapeHtml(beat.narration || '')}</textarea>
+    </div>`;
+
+  const collectBeats = () => Array.from(panel.querySelectorAll('.beat')).map((row) => ({
+    role: row.querySelector('[data-role]').value,
+    title: row.querySelector('[data-title]').value,
+    keyword: row.querySelector('[data-keyword]').value,
+    narration: row.querySelector('[data-narration]').value,
+  }));
+
+  // Mirrors the server's estimate closely enough to warn before a run starts.
+  const updateEstimate = () => {
+    const text = collectBeats().map((beat) => beat.narration).join(' ');
+    const cjk = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(text);
+    const seconds = cjk
+      ? text.replace(/\s/g, '').length / 5.2
+      : text.split(/\s+/).filter(Boolean).length / 2.6;
+    const target = data.targetSeconds || 0;
+    const drift = target > 0 ? Math.round(((seconds - target) / target) * 100) : 0;
+    $('scriptEstimate').textContent = target > 0
+      ? `about ${seconds.toFixed(0)}s spoken · target ${target}s (${drift >= 0 ? '+' : ''}${drift}%)`
+      : `about ${seconds.toFixed(0)}s spoken`;
+  };
+
+  const saveScript = async (approve) => {
+    const hint = $('scriptHint');
+    hint.textContent = 'Saving…';
+    try {
+      const result = await api('/api/job/script', {
+        method: 'POST',
+        body: JSON.stringify({ directory, beats: collectBeats(), approve }),
+      });
+      hint.textContent = result.audioInvalidated
+        ? 'Saved. The wording changed, so the locked narration was discarded and will be spoken again.'
+        : `Saved — ${result.beats} beats, about ${result.estimatedSeconds}s.`;
+      if (approve) {
+        panel.hidden = true;
+        await startRun(directory);
+      }
+    } catch (error) {
+      hint.textContent = error.message;
+    }
+  };
+
+  render(data.script.beats.map((beat) => ({
+    role: beat.role,
+    title: beat.title,
+    keyword: beat.keyword,
+    narration: beat.narration,
+  })));
+}
 
 /* ---------------------------------------------------------------------- jobs */
 
@@ -349,6 +508,8 @@ async function showJob(directory) {
         <h2>${escapeHtml(job.job_id)}</h2>
         <div>
           <button class="primary small" id="runJob">${job.state === 'verified' ? 'Re-render' : 'Run'}</button>
+          <button class="ghost small" id="previewJob">Fast preview</button>
+          <button class="ghost small" id="editScript">Edit script</button>
           <button class="ghost small" id="revealJob">Open folder</button>
         </div>
       </div>
@@ -379,6 +540,19 @@ async function showJob(directory) {
       try { await startRun(directory); } catch (error) { toast(error.message); }
       $('runJob').disabled = false;
     });
+    $('previewJob').addEventListener('click', async () => {
+      $('previewJob').disabled = true;
+      try { await startRun(directory, { preview: true }); } catch (error) { toast(error.message); }
+      $('previewJob').disabled = false;
+    });
+    $('editScript').addEventListener('click', () => {
+      $('runbar').hidden = false;
+      $('runResult').innerHTML = '';
+      $('runLog').textContent = '';
+      $('runStage').textContent = 'Script';
+      $('runMessage').textContent = job.job_id;
+      openScriptEditor(directory);
+    });
     $('revealJob').addEventListener('click', () =>
       api('/api/reveal', { method: 'POST', body: JSON.stringify({ path: directory }) }).catch((error) => toast(error.message)));
   } catch (error) {
@@ -407,6 +581,9 @@ async function loadSettings() {
   $('asrProvider').value = data.settings.asr.provider;
   $('whisperModelPath').value = data.settings.asr.whisper_model_path;
   $('presenterMode').value = data.settings.presenter.mode;
+  $('renderEncoder').value = data.settings.render.encoder;
+  $('previewHeight').value = data.settings.render.preview_height;
+  $('reviewBeforeAudio').checked = data.settings.script.review_before_audio;
   $('workspace').value = data.settings.workspace;
   $('ffmpegPath').value = data.settings.ffmpeg_path;
   $('captionFont').value = data.settings.caption_font;
@@ -484,6 +661,9 @@ $('saveSettings').addEventListener('click', async () => {
   settings.asr.provider = $('asrProvider').value;
   settings.asr.whisper_model_path = $('whisperModelPath').value.trim();
   settings.presenter.mode = $('presenterMode').value;
+  settings.render.encoder = $('renderEncoder').value;
+  settings.render.preview_height = Number($('previewHeight').value) || 640;
+  settings.script.review_before_audio = $('reviewBeforeAudio').checked;
   settings.presenter.motion.zoom_percent = Number($('motionZoom').value);
   settings.presenter.motion.sway_pixels = Number($('motionSway').value);
   settings.presenter.motion.background = $('motionBackground').value;
@@ -575,6 +755,8 @@ async function loadEnvironment() {
       ${line('Loudness normalization', report.loudnorm, 'loudnorm')}
       ${line('Motion plate', report.zoompan, 'zoompan')}
       ${line('Burned-in captions', report.subtitle_burn_in, report.subtitle_burn_in ? 'libass' : 'sidecar .srt only')}
+      ${line('Video encoder', true, report.video_encoder)}
+      ${line('Hardware encoders', report.hardware_encoders.length > 0, report.hardware_encoders.join(', ') || 'none detected')}
       ${line('Speech engines', report.offline_voices.length > 0, report.offline_voices.join(', ') || 'none')}
       ${line('Configured providers', true, report.configured_providers.join(', ') || 'none — running fully local')}
       ${line('Workspace', true, report.workspace)}

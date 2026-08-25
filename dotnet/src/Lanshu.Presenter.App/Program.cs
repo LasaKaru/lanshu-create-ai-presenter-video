@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Lanshu.Presenter.App;
 using Lanshu.Presenter.Core.Configuration;
+using Lanshu.Presenter.Core.Content;
 using Lanshu.Presenter.Core.Environment;
 using Lanshu.Presenter.Core.Jobs;
 using Lanshu.Presenter.Core.Models;
@@ -319,6 +320,7 @@ app.MapPost("/api/jobs", async (HttpRequest request, SettingsStore store) =>
 
         var paths = new JobService().Create(newJob);
         var manifest = new JobService().Load(paths);
+        manifest.Plan.ReviewScript = Boolean(body, "reviewScript", false);
 
         // Voice selection is per job so one identity is used for the whole narration.
         var voiceId = Text(body, "voiceId");
@@ -335,6 +337,85 @@ app.MapPost("/api/jobs", async (HttpRequest request, SettingsStore store) =>
 
         new JobService().Save(paths, manifest);
         return Results.Json(new { directory = paths.Root });
+    }
+    catch (Exception exception)
+    {
+        return Results.Json(new { error = exception.Message }, statusCode: 400);
+    }
+});
+
+app.MapGet("/api/job/script", (string dir) =>
+{
+    try
+    {
+        var paths = new JobPaths(FileSystemUtil.ExpandPath(dir));
+        var job = new JobService().Load(paths);
+        var script = new ScriptEditor().Read(paths);
+        if (script is null)
+        {
+            return Results.Json(new { error = "this job has no drafted script yet" }, statusCode: 404);
+        }
+
+        return Results.Json(new
+        {
+            script,
+            approved = job.Plan.ScriptApproved,
+            state = job.State,
+            estimatedSeconds = Math.Round(script.EstimatedSeconds, 1),
+            targetSeconds = job.Creative.DurationTargetSeconds,
+        }, JobJson.Options);
+    }
+    catch (Exception exception)
+    {
+        return Results.Json(new { error = exception.Message }, statusCode: 400);
+    }
+});
+
+app.MapPost("/api/job/script", async (HttpRequest request) =>
+{
+    var body = await request.ReadFromJsonAsync<JsonObject>();
+    var directory = Text(body, "directory");
+    if (string.IsNullOrWhiteSpace(directory))
+    {
+        return Results.BadRequest(new { error = "directory is required" });
+    }
+
+    try
+    {
+        var paths = new JobPaths(FileSystemUtil.ExpandPath(directory));
+        var service = new JobService();
+        var job = service.Load(paths);
+
+        var beats = new List<ScriptBeat>();
+        if (body?["beats"] is JsonArray array)
+        {
+            foreach (var entry in array)
+            {
+                beats.Add(new ScriptBeat
+                {
+                    Role = Text(entry, "role", "beat"),
+                    Title = Text(entry, "title"),
+                    Narration = Text(entry, "narration"),
+                    Keyword = Text(entry, "keyword"),
+                    VisualNote = Text(entry, "visual_note"),
+                });
+            }
+        }
+
+        var result = new ScriptEditor().Save(
+            paths,
+            job,
+            beats,
+            Text(body, "title"),
+            Boolean(body, "approve", false));
+
+        return Results.Json(new
+        {
+            ok = true,
+            audioInvalidated = result.AudioInvalidated,
+            estimatedSeconds = Math.Round(result.EstimatedSeconds, 1),
+            beats = result.Script.Beats.Count,
+        });
     }
     catch (Exception exception)
     {
@@ -363,6 +444,8 @@ app.MapPost("/api/jobs/run", async (HttpRequest request, RunManager runs) =>
         var record = runs.Start(paths, new PipelineOptions
         {
             AudioOnly = Boolean(body, "audioOnly", false),
+            Preview = Boolean(body, "preview", false),
+            PreviewHeight = (int)Number(body, "previewHeight", 0),
             Force = Boolean(body, "force", false),
             Overwrite = true,
         });
@@ -406,6 +489,11 @@ app.MapPost("/api/jobs/approve", async (HttpRequest request) =>
         case "paid_generation":
             job.Plan.PaidGenerationApproved = true;
             job.Record("plan", "paid generation approved in the studio");
+            break;
+
+        case "script":
+            job.Plan.ScriptApproved = true;
+            job.Record("plan", "script approved in the studio");
             break;
 
         case "pilot":

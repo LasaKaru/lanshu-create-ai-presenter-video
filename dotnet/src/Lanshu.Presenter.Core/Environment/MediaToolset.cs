@@ -182,6 +182,12 @@ public sealed class EnvironmentReport
     [JsonPropertyName("loudnorm")]
     public bool Loudnorm { get; set; }
 
+    [JsonPropertyName("video_encoder")]
+    public string VideoEncoder { get; set; } = string.Empty;
+
+    [JsonPropertyName("hardware_encoders")]
+    public List<string> HardwareEncoders { get; set; } = new();
+
     [JsonPropertyName("offline_voices")]
     public List<string> OfflineVoices { get; set; } = new();
 

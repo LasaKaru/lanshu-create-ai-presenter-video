@@ -56,24 +56,35 @@ public sealed class MotionPlateGenerator : IPresenterGenerator
 
         _log?.Invoke($"Rendering motion plate {request.Width}x{request.Height} @ {request.Fps}fps for {request.DurationSeconds:0.00}s");
 
-        var arguments = new List<string>
-        {
-            "-hide_banner", "-nostdin", "-loglevel", "warning", "-stats", "-y",
-            "-loop", "1",
-            "-framerate", request.Fps.ToString(CultureInfo.InvariantCulture),
-            "-t", request.DurationSeconds.ToString("0.###", CultureInfo.InvariantCulture),
-            "-i", request.ImagePath,
-            "-filter_complex", filter,
-            "-map", "[plate]",
-            "-an",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-            "-pix_fmt", "yuv420p",
-            "-r", request.Fps.ToString(CultureInfo.InvariantCulture),
-            "-fps_mode", "cfr",
-            request.OutputPath,
-        };
+        await _ffmpeg.RunEncodeAsync(
+            "presenter motion plate",
+            request.IsPilot ? EncodeQuality.Preview : EncodeQuality.Intermediate,
+            encoderArguments =>
+            {
+                var arguments = new List<string>
+                {
+                    "-hide_banner", "-nostdin", "-loglevel", "warning", "-stats", "-y",
+                    "-loop", "1",
+                    "-framerate", request.Fps.ToString(CultureInfo.InvariantCulture),
+                    "-t", request.DurationSeconds.ToString("0.###", CultureInfo.InvariantCulture),
+                    "-i", request.ImagePath,
+                    "-filter_complex", filter,
+                    "-map", "[plate]",
+                    "-an",
+                };
 
-        await _ffmpeg.RunCheckedAsync("presenter motion plate", arguments, cancellationToken).ConfigureAwait(false);
+                arguments.AddRange(encoderArguments);
+                arguments.AddRange(new[]
+                {
+                    "-pix_fmt", "yuv420p",
+                    "-r", request.Fps.ToString(CultureInfo.InvariantCulture),
+                    "-fps_mode", "cfr",
+                    request.OutputPath,
+                });
+
+                return arguments;
+            },
+            cancellationToken).ConfigureAwait(false);
         var duration = await _ffmpeg.DurationAsync(request.OutputPath, cancellationToken).ConfigureAwait(false);
         return PresenterPlate.Local(request.OutputPath, duration, Provider, Model);
     }

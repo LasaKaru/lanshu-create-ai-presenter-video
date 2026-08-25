@@ -76,10 +76,17 @@ public sealed class PresenterVideoPipeline
                 .ResolveAsync(settings.FfmpegPath, settings.FfprobePath, cancellationToken)
                 .ConfigureAwait(false);
             var ffmpeg = new FfmpegService(toolset, Log);
-            Report("environment", $"Using {Path.GetFileName(toolset.FfmpegPath)} — {toolset.Version}", 0.02);
+            ffmpeg.Encoder = await new VideoEncoderSelector(toolset, Log)
+                .ResolveAsync(settings.Render.Encoder, cancellationToken)
+                .ConfigureAwait(false);
+            Report(
+                "environment",
+                $"Using {Path.GetFileName(toolset.FfmpegPath)} — {toolset.Version}; video encoder: {ffmpeg.Encoder.DisplayName}",
+                0.02);
 
             job.Capabilities.EncoderQa.Provider = "ffmpeg";
             job.Capabilities.EncoderQa.Version = toolset.Version;
+            job.Capabilities.EncoderQa.Model = ffmpeg.Encoder.Name;
             job.Capabilities.TimelineCompositor.Provider = "ffmpeg";
             job.Capabilities.TimelineCompositor.Model = "filter_complex";
 
@@ -110,6 +117,24 @@ public sealed class PresenterVideoPipeline
             var script = await LoadOrWriteScriptAsync(paths, job, settings, options, Report, cancellationToken)
                 .ConfigureAwait(false);
             _jobs.Advance(paths, job, JobState.ContentLocked, $"script locked: {script.Beats.Count} beats, {script.Source}");
+
+            // Narration is expensive and everything downstream is timed against it, so the
+            // wording is settled before a single word is spoken.
+            if ((job.Plan.ReviewScript || settings.Script.ReviewBeforeAudio) && !job.Plan.ScriptApproved)
+            {
+                Report("content_locked", "Waiting for script review", 0.12);
+                return new PipelineResult
+                {
+                    Outcome = PipelineOutcome.NeedsApproval,
+                    State = job.StateValue,
+                    ApprovalKind = "script",
+                    ApprovalRequest =
+                        $"Read the {script.Beats.Count}-beat narration and edit anything that should sound different, "
+                        + "then approve it. Nothing is synthesized until you do.",
+                    Message = "The script is ready for review.",
+                    Warnings = warnings,
+                };
+            }
 
             // 3. Audio -----------------------------------------------------------------
             Report("audio_locked", "Choosing a voice", 0.14);
@@ -153,6 +178,10 @@ public sealed class PresenterVideoPipeline
                 .ConfigureAwait(false);
             warnings.AddRange(asrReport.Warnings);
 
+            var subtitlePath = job.Creative.CaptionsEnabled || job.Creative.KeywordCalloutsEnabled
+                ? paths.Resolve(job.Artifacts.CaptionAss)
+                : string.Empty;
+
             // 5. Presenter route and billing gate ---------------------------------------
             var presenterRouter = new PresenterRouter(settings, _store, _httpClient, ffmpeg, Log);
             var route = presenterRouter.Resolve(job, paths);
@@ -166,7 +195,21 @@ public sealed class PresenterVideoPipeline
             var plateDirectory = paths.VideoSelected;
             Directory.CreateDirectory(plateDirectory);
             Directory.CreateDirectory(paths.VideoCandidates);
-            var platePath = Path.Combine(plateDirectory, "presenter.mp4");
+            var platePath = options.Preview
+                ? Path.Combine(paths.VideoCandidates, "preview-plate.mp4")
+                : Path.Combine(plateDirectory, "presenter.mp4");
+
+            // The proxy keeps the delivery aspect exactly; only the pixel count drops.
+            var renderWidth = job.Creative.Width;
+            var renderHeight = job.Creative.Height;
+            if (options.Preview)
+            {
+                (renderWidth, renderHeight) = ProxyDimensions(
+                    job.Creative.Width,
+                    job.Creative.Height,
+                    options.PreviewHeight <= 0 ? settings.Render.PreviewHeight : options.PreviewHeight);
+                Report("presenter_generated", $"Preview mode: rendering at {renderWidth}x{renderHeight}", 0.46);
+            }
 
             PresenterPlate plate;
 
@@ -194,17 +237,52 @@ public sealed class PresenterVideoPipeline
                             AudioPath = narration.AudioPath,
                             OutputPath = platePath,
                             DurationSeconds = narration.DurationSeconds,
-                            Width = job.Creative.Width,
-                            Height = job.Creative.Height,
+                            Width = renderWidth,
+                            Height = renderHeight,
                             Fps = job.Creative.Fps,
                             Prompt = PresenterPromptBuilder.Build(job, actionfulOpening: true),
                             NegativePrompt = PresenterPromptBuilder.NegativePrompt(),
+                            IsPilot = options.Preview,
                         },
                         cancellationToken)
                     .ConfigureAwait(false);
 
                 warnings.Add(
                     "The presenter track is an animated motion plate rendered from the still image, not a lip-synced talking head. Configure a talking-head provider in Settings for synchronized mouth movement.");
+            }
+
+            if (options.Preview)
+            {
+                Report("rendered", "Rendering the preview composition", 0.70);
+                var previewTimeline = await new TimelineBuilder(ffmpeg)
+                    .BuildAsync(paths, job, script, plate, narration, subtitlePath, cancellationToken)
+                    .ConfigureAwait(false);
+                previewTimeline.Width = renderWidth;
+                previewTimeline.Height = renderHeight;
+                previewTimeline.FontsDirectory = string.IsNullOrWhiteSpace(settings.FontsDirectory)
+                    ? string.Empty
+                    : FileSystemUtil.ExpandPath(settings.FontsDirectory);
+
+                Directory.CreateDirectory(paths.Renders);
+                var previewPath = Path.Combine(paths.Renders, "preview.mp4");
+                FileSystemUtil.TryDelete(previewPath);
+                await new FfmpegCompositor(ffmpeg, Log)
+                    .RenderAsync(previewTimeline, previewPath, cancellationToken, EncodeQuality.Preview)
+                    .ConfigureAwait(false);
+
+                _jobs.Save(paths, job);
+                Report("rendered", "Preview ready", 1.0);
+
+                return new PipelineResult
+                {
+                    Outcome = PipelineOutcome.Completed,
+                    State = job.StateValue,
+                    Message =
+                        $"Preview rendered at {renderWidth}x{renderHeight}. Run again without preview mode for the delivery master.",
+                    PreviewPath = previewPath,
+                    DurationSeconds = previewTimeline.DurationSeconds,
+                    Warnings = warnings,
+                };
             }
 
             job.Capabilities.MainPresenter.Provider = plate.Provider;
@@ -219,10 +297,6 @@ public sealed class PresenterVideoPipeline
 
             // 6. Composition -----------------------------------------------------------
             Report("composition_checked", "Building the timeline", 0.66);
-            var subtitlePath = job.Creative.CaptionsEnabled || job.Creative.KeywordCalloutsEnabled
-                ? paths.Resolve(job.Artifacts.CaptionAss)
-                : string.Empty;
-
             var timeline = await new TimelineBuilder(ffmpeg)
                 .BuildAsync(paths, job, script, plate, narration, subtitlePath, cancellationToken)
                 .ConfigureAwait(false);
@@ -672,6 +746,32 @@ public sealed class PresenterVideoPipeline
                 },
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Scales the delivery frame down to the requested short edge, keeping the aspect ratio and
+    /// forcing even dimensions so H.264 accepts them.
+    /// </summary>
+    internal static (int Width, int Height) ProxyDimensions(int width, int height, int targetShortEdge)
+    {
+        var shortEdge = Math.Min(width, height);
+        var target = Math.Clamp(targetShortEdge, 160, shortEdge);
+        var scale = (double)target / shortEdge;
+
+        var proxyWidth = Math.Max(2, (int)Math.Round(width * scale));
+        var proxyHeight = Math.Max(2, (int)Math.Round(height * scale));
+
+        if (proxyWidth % 2 != 0)
+        {
+            proxyWidth++;
+        }
+
+        if (proxyHeight % 2 != 0)
+        {
+            proxyHeight++;
+        }
+
+        return (proxyWidth, proxyHeight);
     }
 
     private static string ResolveStem(PipelineOptions options, JobManifest job)

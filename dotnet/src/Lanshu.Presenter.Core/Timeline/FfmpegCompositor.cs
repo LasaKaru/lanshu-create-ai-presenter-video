@@ -24,7 +24,8 @@ public sealed class FfmpegCompositor
     public async Task<string> RenderAsync(
         RenderTimeline timeline,
         string outputPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        EncodeQuality quality = EncodeQuality.Master)
     {
         var presenter = timeline.Clips.FirstOrDefault(clip => clip.KindValue == ClipKind.Presenter)
             ?? throw new InvalidOperationException("the timeline has no presenter clip");
@@ -80,22 +81,6 @@ public sealed class FfmpegCompositor
 
         var filter = BuildFilter(timeline, inserts, insertInputs, musicInput);
 
-        arguments.AddRange(new[]
-        {
-            "-filter_complex", filter,
-            "-map", "[vout]",
-            "-map", "[aout]",
-            "-t", duration,
-            "-c:v", "libx264", "-preset", "medium", "-crf", "17",
-            "-profile:v", "high", "-pix_fmt", "yuv420p",
-            "-r", timeline.Fps.ToString(CultureInfo.InvariantCulture),
-            "-fps_mode", "cfr",
-            "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
-            "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
-            "-map_metadata", "-1", "-map_chapters", "-1",
-            outputPath,
-        });
-
         _log?.Invoke($"Compositing {timeline.DurationSeconds:0.00}s at {timeline.Width}x{timeline.Height}");
 
         // Run from the subtitle directory so the filtergraph can reference it by bare filename,
@@ -104,9 +89,39 @@ public sealed class FfmpegCompositor
             ? null
             : Path.GetDirectoryName(Path.GetFullPath(timeline.SubtitlePath));
 
-        await _ffmpeg
-            .RunCheckedAsync("timeline composition", arguments, cancellationToken, workingDirectory)
-            .ConfigureAwait(false);
+        // A preview keeps the audio compressed too; the master keeps it uncompressed so the
+        // delivery finalizer measures loudness from an unaltered program.
+        var audioArguments = quality == EncodeQuality.Preview
+            ? new[] { "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2" }
+            : new[] { "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2" };
+
+        await _ffmpeg.RunEncodeAsync(
+            "timeline composition",
+            quality,
+            encoderArguments =>
+            {
+                var full = new List<string>(arguments)
+                {
+                    "-filter_complex", filter,
+                    "-map", "[vout]",
+                    "-map", "[aout]",
+                    "-t", duration,
+                };
+
+                full.AddRange(encoderArguments);
+                full.AddRange(new[]
+                {
+                    "-pix_fmt", "yuv420p",
+                    "-r", timeline.Fps.ToString(CultureInfo.InvariantCulture),
+                    "-fps_mode", "cfr",
+                    "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
+                });
+                full.AddRange(audioArguments);
+                full.AddRange(new[] { "-map_metadata", "-1", "-map_chapters", "-1", outputPath });
+                return full;
+            },
+            cancellationToken,
+            workingDirectory).ConfigureAwait(false);
 
         return outputPath;
     }

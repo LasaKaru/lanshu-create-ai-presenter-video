@@ -233,6 +233,13 @@ public sealed class JobPlan
     [JsonPropertyName("price_evidence_date")]
     public string PriceEvidenceDate { get; set; } = string.Empty;
 
+    /// <summary>Pause after drafting so the narration can be read and edited before it is spoken.</summary>
+    [JsonPropertyName("review_script")]
+    public bool ReviewScript { get; set; }
+
+    [JsonPropertyName("script_approved")]
+    public bool ScriptApproved { get; set; }
+
     [JsonPropertyName("pilot_approved")]
     public bool PilotApproved { get; set; }
 

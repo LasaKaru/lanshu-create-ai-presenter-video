@@ -19,6 +19,7 @@ lanshu.exe                  the same pipeline as a CLI
 topic or script + authorized presenter image
         ↓  preflight: decode inputs, check approvals and manual review
         ↓  content:   write or parse the script into beats with callout keywords
+        ↓  review:    optional — read and edit the narration before it is spoken
         ↓  audio:     synthesize the complete narration, one voice, one configuration
         ↓  timings:   transcribe or align every word against the measured audio
         ↓  presenter: talking-head provider, or a local animated motion plate
@@ -51,6 +52,48 @@ On a clean machine with no API keys and no network:
 The motion plate is **not** a lip-synced talking head. Every job record, QA report and run
 summary states which generator actually produced the track, so the output is never described
 as something it is not. Configure a talking-head provider for real mouth synchronization.
+
+## Review the script before it is spoken
+
+Narration is the master clock, so wording is settled before anything is synthesized. Tick
+**Review the script before it is spoken** when creating a job (or `--review-script` on the CLI,
+or turn it on for every job in Settings) and the run pauses after drafting.
+
+The studio then shows an editor: per-beat role, title, callout keyword and the spoken narration,
+with a live estimate of how long it will actually take to say against your target duration. Pasted
+markdown is reduced to speakable words, and every beat is given a callout keyword if you leave one
+blank. Save and approve, and the run continues.
+
+Editing the wording of a job whose audio is already locked **discards that narration on purpose**.
+Captions, keyword anchors, chapter boundaries and every cut are timed against the old recording,
+so it is re-spoken rather than left out of sync. Changing only a title or a keyword leaves the
+audio alone.
+
+## Fast preview
+
+A full delivery render does two encodes, a loudness pass, a contact sheet and the acceptance
+gates. When you only need to see whether the captions and callouts land in the right place, use
+**Fast preview** (or `lanshu run --preview`). It renders a small proxy at the same aspect ratio
+with an ultrafast preset and stops there — roughly five times quicker on a 45-second video.
+
+Caption and callout geometry is authored against the delivery resolution and scaled by libass, so
+what you see in the proxy is what the master will look like. The preview never advances the job
+state or overwrites the accepted presenter plate.
+
+Set the proxy's short edge in Settings; 640 is the default.
+
+## Hardware encoding
+
+Renders use NVENC, Quick Sync, VideoToolbox or AMF when one of them actually works on the machine,
+and libx264 otherwise. Being listed by `ffmpeg -encoders` is not proof — a build can advertise
+NVENC on a machine with no NVIDIA card — so each candidate is proven once by encoding a few
+synthetic frames before it is trusted.
+
+A hardware encoder can also pass that probe and still fail mid-run on a busy GPU or a driver
+reset. When that happens the encode is retried in software automatically rather than failing the
+job. The encoder that actually ran is recorded on the job under `capabilities.encoder_qa`.
+
+The Environment tab reports the resolved encoder and every hardware encoder that passed its probe.
 
 ## Optional providers
 
@@ -152,6 +195,9 @@ lanshu init --topic "Explain context engineering in one minute" \
 lanshu run --job-dir ~/.lanshu-presenter/jobs/explain-context-engineering-20260825-1200
 ```
 
+Add `--preview` to `run` for the fast proxy, and `--review-script` to `init` to pause for a script
+review (approve it with `lanshu approve --script`).
+
 Other commands: `preflight`, `approve`, `finalize`, `voices`, `jobs`, `config`, `version`.
 `lanshu` with no arguments prints the full reference.
 
@@ -198,3 +244,6 @@ dotnet/
   each one binds to a real spoken anchor.
 - If the FFmpeg build cannot burn in subtitles, captions are still delivered as a sidecar
   `.srt` and the environment report says so rather than failing the render.
+- `PublishSingleFile` and `SelfContained` are passed on the publish command rather than set in the
+  project files, because setting them there forces a runtime identifier onto plain `dotnet build`
+  and moves its output directory.

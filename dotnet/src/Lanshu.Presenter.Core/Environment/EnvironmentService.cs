@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Lanshu.Presenter.Core.Configuration;
+using Lanshu.Presenter.Core.Media;
 using Lanshu.Presenter.Core.Util;
 using Lanshu.Presenter.Core.Voice;
 
@@ -67,6 +68,20 @@ public sealed class EnvironmentService
             {
                 report.Problems.Add(
                     "the FFmpeg build is missing the zoompan filter, which the local motion plate needs");
+            }
+
+            var selector = new VideoEncoderSelector(toolset);
+            var encoder = await selector
+                .ResolveAsync(settings.Render.Encoder, cancellationToken)
+                .ConfigureAwait(false);
+            report.VideoEncoder = encoder.DisplayName;
+            report.HardwareEncoders =
+                (await selector.AvailableHardwareAsync(cancellationToken).ConfigureAwait(false)).ToList();
+
+            if (report.HardwareEncoders.Count == 0)
+            {
+                report.Notes.Add(
+                    "no working hardware video encoder was found; renders use software encoding, which is slower but produces identical output");
             }
         }
         catch (Exception exception)

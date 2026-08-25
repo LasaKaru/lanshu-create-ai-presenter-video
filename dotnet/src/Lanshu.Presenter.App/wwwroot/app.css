@@ -246,3 +246,33 @@ code { background: var(--surface-2); border-radius: 4px; padding: 1px 5px; font-
   background: var(--surface); border: 1px solid var(--line); border-radius: 9px;
   padding: 10px 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); z-index: 60; font-size: 13px;
 }
+
+/* Script editor inside the run panel */
+#scriptEditor {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.script-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.script-head strong { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+.script-head .hint { margin: 0; }
+
+.beat {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  margin-bottom: 10px;
+  background: var(--surface-2);
+}
+.beat .row { align-items: flex-end; }
+.beat textarea { font-family: var(--font); font-size: 13px; }
+.beat [data-remove-beat] { flex: none; align-self: flex-end; }
