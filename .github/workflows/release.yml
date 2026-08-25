@@ -1,0 +1,59 @@
+name: Release Studio
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish the release under'
+        required: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: dotnet
+
+jobs:
+  release:
+    name: Publish downloads
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test
+        run: dotnet test LanshuPresenter.sln -c Release
+
+      - name: Publish every target
+        run: |
+          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
+            ./build/publish.sh "$rid" "${{ github.workspace }}/out/$rid"
+          done
+
+      - name: Package archives
+        working-directory: ${{ github.workspace }}/out
+        run: |
+          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
+            (cd "$rid" && zip -r "../lanshu-presenter-studio-$rid.zip" .)
+          done
+          sha256sum ./*.zip > SHA256SUMS.txt
+          ls -la
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Lanshu AI Presenter Studio ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ github.workspace }}/out/*.zip
+            ${{ github.workspace }}/out/SHA256SUMS.txt

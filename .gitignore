@@ -16,3 +16,10 @@ renders/
 *.mov
 *.wav
 *.mp3
+
+# .NET build output
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/artifacts/
+dotnet/out/
+*.user
