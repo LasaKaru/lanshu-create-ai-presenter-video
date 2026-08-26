@@ -260,6 +260,54 @@ public sealed class PresenterVideoPipeline
                 Report("presenter_generated", $"Preview mode: rendering at {renderWidth}x{renderHeight}", 0.46);
             }
 
+            // Framing and emphasis crop into the plate, so it is rendered large enough that those
+            // moves take a window out of real detail instead of upscaling a finished frame.
+            // Chapters come from the script and the measured narration, so they can be settled
+            // here rather than waiting for the timeline — the plate has to be sized before then.
+            job.Plan.Chapters = TimelineBuilder.BuildChapters(script, narration);
+
+            var plannedShots = job.Creative.MultiShotEnabled
+                ? TimelineBuilder.BuildShots(job.Plan.Chapters, narration.DurationSeconds)
+                : Array.Empty<Shot>();
+
+            var tightestFraming = plannedShots.Count > 0 ? plannedShots.Max(shot => shot.Scale) : 1.0;
+            var oversample = Math.Clamp(tightestFraming * (job.Creative.PunchInsEnabled ? 1.05 : 1.0), 1.0, 1.6);
+
+            var envelope = settings.Presenter.Motion.AudioReactive && !options.Preview
+                ? await AudioEnvelope.MeasureAsync(
+                        ffmpeg,
+                        narration.AudioPath,
+                        job.Creative.Fps,
+                        (int)Math.Round(narration.DurationSeconds * job.Creative.Fps),
+                        cancellationToken)
+                    .ConfigureAwait(false)
+                : null;
+
+            // The presenter can be lifted off their original background before anything animates
+            // them; the plate then treats the composite as the source image like any other.
+            var sourceImage = job.Input.PresenterImage;
+            if (settings.Presenter.Motion.BackgroundReplacement.IsEnabled && !route.Generator.IsRemote)
+            {
+                Report("presenter_generated", "Replacing the background", 0.47);
+                sourceImage = await new BackgroundCompositor(
+                        ffmpeg,
+                        settings.Presenter.Motion.BackgroundReplacement,
+                        Log)
+                    .PrepareAsync(
+                        job.Input.PresenterImage,
+                        Path.Combine(paths.Temp, "background"),
+                        job.Creative.Width,
+                        job.Creative.Height,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!string.Equals(sourceImage, job.Input.PresenterImage, StringComparison.Ordinal))
+                {
+                    job.Capabilities.ShortMotion.Notes =
+                        $"background replaced via '{settings.Presenter.Motion.BackgroundReplacement.Mode}'";
+                }
+            }
+
             PresenterPlate plate;
 
             if (route.Generator.IsRemote)
@@ -282,7 +330,7 @@ public sealed class PresenterVideoPipeline
                 plate = await route.Generator.GenerateAsync(
                         new PresenterRequest
                         {
-                            ImagePath = job.Input.PresenterImage,
+                            ImagePath = sourceImage,
                             AudioPath = narration.AudioPath,
                             OutputPath = platePath,
                             DurationSeconds = narration.DurationSeconds,
@@ -292,6 +340,8 @@ public sealed class PresenterVideoPipeline
                             Prompt = PresenterPromptBuilder.Build(job, actionfulOpening: true),
                             NegativePrompt = PresenterPromptBuilder.NegativePrompt(),
                             IsPilot = options.Preview,
+                            Oversample = options.Preview ? 1.0 : oversample,
+                            Envelope = envelope,
                         },
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -334,7 +384,8 @@ public sealed class PresenterVideoPipeline
                     .BuildAsync(
                         paths, job, script, plate, narration, subtitlePath, cancellationToken,
                         captionPlan.Callouts,
-                        job.Creative.PunchInsEnabled)
+                        job.Creative.PunchInsEnabled,
+                        multiShotEnabled: false)
                     .ConfigureAwait(false);
                 previewTimeline.Width = renderWidth;
                 previewTimeline.Height = renderHeight;
@@ -382,7 +433,8 @@ public sealed class PresenterVideoPipeline
                 .BuildAsync(
                     paths, job, script, plate, narration, subtitlePath, cancellationToken,
                     captionPlan.Callouts,
-                    job.Creative.PunchInsEnabled)
+                    job.Creative.PunchInsEnabled,
+                    job.Creative.MultiShotEnabled)
                 .ConfigureAwait(false);
             timeline.FontsDirectory = string.IsNullOrWhiteSpace(settings.FontsDirectory)
                 ? string.Empty
@@ -923,7 +975,8 @@ public sealed class PresenterVideoPipeline
                 job.Creative.CaptionsEnabled || job.Creative.KeywordCalloutsEnabled ? assPath : string.Empty,
                 cancellationToken,
                 captionPlan.Callouts,
-                job.Creative.PunchInsEnabled)
+                job.Creative.PunchInsEnabled,
+                job.Creative.MultiShotEnabled)
             .ConfigureAwait(false);
 
         timeline.Width = width;

@@ -66,6 +66,31 @@ REAL LIP-SYNC
   in Settings; the presenter's mouth then follows the narration. Nothing is
   downloaded for you - those tools are large and carry their own licences.
 
+  From a command prompt, "lanshu lipsync --list" shows the tools it already
+  knows the command line for, "lanshu lipsync --use wav2lip --dir <folder>"
+  fills that command line in, and "lanshu lipsync --test" proves the tool
+  really runs on a two-second test clip before a real job depends on it.
+
+CHANGING THE BACKGROUND
+
+  Shot against a green screen, or a wall that fights the captions? The
+  studio can cut the presenter out and put them on a blurred, solid,
+  gradient or custom backdrop before any motion is applied. Give it a green
+  screen, a black-and-white matte of your own, or a cutout tool such as
+  rembg. If the cutout fails it keeps your original picture and tells you,
+  rather than shipping a half-cut presenter.
+
+HOW THE PICTURE MOVES
+
+  The frame leans into the narration instead of drifting on a timer - the
+  loudness of the voice drives the sway, so it moves with the sentence and
+  settles at the end of it.
+
+  Each section of the script also gets its own framing: wide, medium or
+  close, cutting on the section boundaries, with the opening and closing
+  sections kept wide. One unbroken framing for a whole minute looks like a
+  webcam; this looks edited.
+
 WITH API KEYS (Settings tab)
 
   Anthropic or OpenAI   full script drafting from a topic

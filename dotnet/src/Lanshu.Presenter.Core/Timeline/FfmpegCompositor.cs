@@ -141,11 +141,17 @@ public sealed class FfmpegCompositor
         // The plate is scaled to cover, then cropped by a time-varying window. Cropping a slightly
         // larger source is how the punch-in happens: a smaller crop window shown at the same output
         // size reads as a push in, and the source keeps its full detail throughout.
+        // Framing and emphasis both crop into the same plate, so the oversample has to cover the
+        // tightest combination of the two rather than either one alone.
         var punchScale = timeline.PunchIns.Count > 0
             ? timeline.PunchIns.Max(punch => punch.Scale)
             : 1.0;
-        var oversampleWidth = EnsureEven((int)Math.Ceiling(width * punchScale));
-        var oversampleHeight = EnsureEven((int)Math.Ceiling(height * punchScale));
+        var shotScale = timeline.Shots.Count > 0
+            ? timeline.Shots.Max(shot => shot.Scale)
+            : 1.0;
+        var combined = punchScale * shotScale;
+        var oversampleWidth = EnsureEven((int)Math.Ceiling(width * combined));
+        var oversampleHeight = EnsureEven((int)Math.Ceiling(height * combined));
 
         filter.Append(string.Format(
             CultureInfo.InvariantCulture,
@@ -156,9 +162,10 @@ public sealed class FfmpegCompositor
 
         filter.Append(string.Format(
             CultureInfo.InvariantCulture,
-            "[over]crop=w='{0}':h='{1}':x='(iw-ow)/2':y='(ih-oh)/2',scale={2}:{3}:flags=bilinear,setsar=1[base];",
+            "[over]crop=w='{0}':h='{1}':x='(iw-ow)/2':y='{2}',scale={3}:{4}:flags=bilinear,setsar=1[base];",
             BuildPunchExpression(timeline, oversampleWidth, width),
             BuildPunchExpression(timeline, oversampleHeight, height),
+            BuildVerticalExpression(timeline),
             width,
             height));
 
@@ -245,29 +252,40 @@ public sealed class FfmpegCompositor
     }
 
     /// <summary>
-    /// Builds a crop dimension expression over time: the full oversampled size at rest, easing to
-    /// the tighter window across each punch-in and back out again. A raised cosine keeps both the
-    /// start and the end of the move soft, so nothing snaps.
+    /// Builds a crop dimension expression over time. The resting value is the chapter's framing,
+    /// which steps at each cut; a punch-in eases in on top of that and back out again, using a
+    /// raised cosine so neither the start nor the end of the move snaps.
     /// </summary>
     internal static string BuildPunchExpression(RenderTimeline timeline, int oversampled, int target)
     {
-        if (timeline.PunchIns.Count == 0 || oversampled <= target)
+        if (oversampled <= target)
         {
             return oversampled.ToString(CultureInfo.InvariantCulture);
         }
 
-        // Innermost value first, then wrap each punch around it as a conditional.
+        // Resting size, chapter by chapter. Innermost value first, then each shot wraps it.
         var expression = oversampled.ToString(CultureInfo.InvariantCulture);
+        foreach (var shot in timeline.Shots.Where(shot => shot.Scale > 1.0))
+        {
+            var size = Clamp(oversampled / shot.Scale, target, oversampled);
+            expression = string.Format(
+                CultureInfo.InvariantCulture,
+                "if(between(t,{0:0.###},{1:0.###}),{2},{3})",
+                shot.StartSeconds,
+                shot.EndSeconds,
+                size,
+                expression);
+        }
 
         foreach (var punch in timeline.PunchIns)
         {
-            var start = punch.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture);
-            var end = punch.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture);
-            var span = Math.Max(0.1, punch.DurationSeconds).ToString("0.###", CultureInfo.InvariantCulture);
+            var span = Math.Max(0.1, punch.DurationSeconds);
 
-            // Tightest crop this punch reaches, clamped so it can never exceed the oversampled source.
-            var tightest = Math.Max(target, (int)Math.Round(oversampled / Math.Max(1.0, punch.Scale)));
-            var travel = oversampled - tightest;
+            // The punch eases from whatever the framing is resting at, so the two compose instead
+            // of the emphasis snapping the frame back to a fixed size.
+            var restingAt = RestingSize(timeline, punch.StartSeconds, oversampled, target);
+            var tightest = Clamp(restingAt / Math.Max(1.0, punch.Scale), target, oversampled);
+            var travel = restingAt - tightest;
             if (travel <= 0)
             {
                 continue;
@@ -275,16 +293,75 @@ public sealed class FfmpegCompositor
 
             var eased = string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}-{1}*(0.5-0.5*cos(2*PI*(t-{2})/{3}))",
-                oversampled,
+                "{0}-{1}*(0.5-0.5*cos(2*PI*(t-{2:0.###})/{3:0.###}))",
+                restingAt,
                 travel,
-                start,
+                punch.StartSeconds,
                 span);
 
-            expression = $"if(between(t,{start},{end}),{eased},{expression})";
+            expression = string.Format(
+                CultureInfo.InvariantCulture,
+                "if(between(t,{0:0.###},{1:0.###}),{2},{3})",
+                punch.StartSeconds,
+                punch.EndSeconds,
+                eased,
+                expression);
         }
 
         return expression;
+    }
+
+    /// <summary>
+    /// Vertical placement of the crop window. A tighter framing sits higher so it lands on the
+    /// face rather than the middle of the body.
+    /// </summary>
+    internal static string BuildVerticalExpression(RenderTimeline timeline)
+    {
+        const string centred = "(ih-oh)/2";
+        var biased = timeline.Shots.Where(shot => Math.Abs(shot.YBias) > 0.001).ToList();
+        if (biased.Count == 0)
+        {
+            return centred;
+        }
+
+        var expression = centred;
+        foreach (var shot in biased)
+        {
+            // Bias runs -1..1 across the available travel, so it can never push past an edge.
+            var offset = string.Format(
+                CultureInfo.InvariantCulture,
+                "(ih-oh)/2+(ih-oh)/2*{0:0.###}",
+                Math.Clamp(shot.YBias, -1, 1));
+
+            expression = string.Format(
+                CultureInfo.InvariantCulture,
+                "if(between(t,{0:0.###},{1:0.###}),{2},{3})",
+                shot.StartSeconds,
+                shot.EndSeconds,
+                offset,
+                expression);
+        }
+
+        return expression;
+    }
+
+    private static int RestingSize(RenderTimeline timeline, double time, int oversampled, int target)
+    {
+        var shot = timeline.Shots.LastOrDefault(candidate =>
+            time >= candidate.StartSeconds && time <= candidate.EndSeconds && candidate.Scale > 1.0);
+
+        return shot is null ? oversampled : Clamp(oversampled / shot.Scale, target, oversampled);
+    }
+
+    private static int Clamp(double value, int minimum, int maximum)
+    {
+        var rounded = (int)Math.Round(value);
+        if (rounded % 2 != 0)
+        {
+            rounded++;
+        }
+
+        return Math.Clamp(rounded, minimum, maximum);
     }
 
     private static int EnsureEven(int value) => value % 2 == 0 ? value : value + 1;

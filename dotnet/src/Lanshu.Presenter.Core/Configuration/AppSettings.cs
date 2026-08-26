@@ -235,6 +235,51 @@ public sealed class LocalLipSyncSettings
     public double TimeoutSeconds { get; set; } = 1800;
 }
 
+/// <summary>
+/// How the presenter is separated from their original background and what replaces it.
+/// Separation is deliberately explicit rather than automatic: guessing a matte on an arbitrary
+/// photo produces halos and chewed hair, which looks worse than leaving the background alone.
+/// </summary>
+public sealed class BackgroundSettings
+{
+    /// <summary>none | chroma | matte | cutout</summary>
+    [JsonPropertyName("mode")]
+    public string Mode { get; set; } = "none";
+
+    /// <summary>Key colour for a green or blue screen, as #RRGGBB.</summary>
+    [JsonPropertyName("chroma_color")]
+    public string ChromaColor { get; set; } = "#00B140";
+
+    [JsonPropertyName("similarity")]
+    public double Similarity { get; set; } = 0.18;
+
+    [JsonPropertyName("blend")]
+    public double Blend { get; set; } = 0.05;
+
+    /// <summary>A greyscale matte the operator supplies: white keeps, black drops.</summary>
+    [JsonPropertyName("matte_path")]
+    public string MattePath { get; set; } = string.Empty;
+
+    /// <summary>A tool that writes an RGBA cutout, e.g. rembg. Placeholders {{INPUT}} {{OUTPUT}}.</summary>
+    [JsonPropertyName("cutout_command")]
+    public string CutoutCommand { get; set; } = string.Empty;
+
+    [JsonPropertyName("cutout_arguments")]
+    public string CutoutArguments { get; set; } = string.Empty;
+
+    /// <summary>blurred | solid | gradient | image</summary>
+    [JsonPropertyName("backdrop")]
+    public string Backdrop { get; set; } = "blurred";
+
+    [JsonPropertyName("backdrop_color")]
+    public string BackdropColor { get; set; } = "#101822";
+
+    [JsonPropertyName("backdrop_image")]
+    public string BackdropImage { get; set; } = string.Empty;
+
+    public bool IsEnabled => !string.Equals(Mode, "none", StringComparison.OrdinalIgnoreCase);
+}
+
 public sealed class MotionPlateSettings
 {
     [JsonPropertyName("zoom_percent")]
@@ -254,6 +299,18 @@ public sealed class MotionPlateSettings
 
     [JsonPropertyName("grade")]
     public bool Grade { get; set; } = true;
+
+    /// <summary>Drive sway and breathing from the narration instead of a fixed oscillator.</summary>
+    [JsonPropertyName("audio_reactive")]
+    public bool AudioReactive { get; set; } = true;
+
+    /// <summary>How much of the movement comes from speech rather than the idle drift, 0..1.</summary>
+    [JsonPropertyName("audio_weight")]
+    public double AudioWeight { get; set; } = 0.65;
+
+    /// <summary>Distinct from <see cref="Background"/>, which only chooses how the frame is filled.</summary>
+    [JsonPropertyName("background_replacement")]
+    public BackgroundSettings BackgroundReplacement { get; set; } = new();
 }
 
 public sealed class AsrSettings

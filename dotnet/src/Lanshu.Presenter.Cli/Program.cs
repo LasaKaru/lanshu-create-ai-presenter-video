@@ -7,6 +7,7 @@ using Lanshu.Presenter.Core.Media;
 using Lanshu.Presenter.Core.Models;
 using Lanshu.Presenter.Core.Pipeline;
 using Lanshu.Presenter.Core.Preflight;
+using Lanshu.Presenter.Core.Presenter;
 using Lanshu.Presenter.Core.Util;
 using Lanshu.Presenter.Core.Util;
 using Lanshu.Presenter.Core.Voice;
@@ -28,6 +29,7 @@ try
         "segments" => Segments(),
         "retake" => Retake(),
         "pilot" => await PilotAsync(),
+        "lipsync" => await LipSyncAsync(),
         "doctor" => await DoctorAsync(),
         "voices" => await VoicesAsync(),
         "jobs" => JobsList(),
@@ -79,6 +81,7 @@ async Task<int> InitAsync()
         CaptionsEnabled = !line.Flag("no-captions"),
         KeywordCalloutsEnabled = !line.Flag("no-callouts"),
         PunchInsEnabled = !line.Flag("no-punch-ins"),
+        MultiShotEnabled = !line.Flag("no-multi-shot"),
         PublishingKit = !line.Flag("no-publishing-kit"),
         AdditionalAspects = line.Values("also-aspect"),
         RightsConfirmed = line.Flag("rights-confirmed"),
@@ -469,6 +472,83 @@ void OpenInDefaultApplication(string path)
 static string Truncate(string text, int maxLength) =>
     text.Length <= maxLength ? text : text[..(maxLength - 1)] + "\u2026";
 
+async Task<int> LipSyncAsync()
+{
+    var settings = store.Load();
+    var toolset = await MediaToolset.ResolveAsync(settings.FfmpegPath, settings.FfprobePath);
+    var service = new LipSyncSetupService(store, new FfmpegService(toolset), Console.WriteLine);
+
+    if (line.Flag("list"))
+    {
+        Console.WriteLine("Presets. Install the tool yourself, then point the studio at your checkout.");
+        Console.WriteLine();
+        foreach (var preset in LipSyncSetupService.Presets)
+        {
+            Console.WriteLine($"  {preset.Id,-16} {preset.DisplayName}");
+            Console.WriteLine($"  {string.Empty,-16} {preset.Command} {preset.Arguments}");
+            Console.WriteLine($"  {string.Empty,-16} {preset.Note}");
+            Console.WriteLine();
+        }
+
+        Console.WriteLine("  lanshu lipsync --use wav2lip --dir ~/src/Wav2Lip [--checkpoint <file>]");
+        return 0;
+    }
+
+    if (line.Has("use"))
+    {
+        var directory = line.Value("dir")
+            ?? throw new ArgumentException("--dir <checkout directory> is required with --use");
+
+        var configured = service.Configure(
+            line.Value("use")!,
+            directory,
+            line.Value("checkpoint"),
+            line.Value("python"));
+
+        PrintLipSyncStatus(configured);
+        if (configured.Configured)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Verify it with: lanshu lipsync --test");
+        }
+
+        return configured.Configured ? 0 : 1;
+    }
+
+    if (line.Flag("test"))
+    {
+        Console.WriteLine("Running a two-second smoke test through the configured tool...");
+        var result = await service.TestAsync();
+        Console.WriteLine();
+        Console.WriteLine(result.Passed ? "PASS  " + result.Detail : "FAIL  " + result.Detail);
+        return result.Passed ? 0 : 1;
+    }
+
+    PrintLipSyncStatus(service.Describe());
+    Console.WriteLine();
+    Console.WriteLine("  lanshu lipsync --list              show the known tools");
+    Console.WriteLine("  lanshu lipsync --use <preset> --dir <checkout>");
+    Console.WriteLine("  lanshu lipsync --test              prove the configured tool runs");
+    return 0;
+}
+
+void PrintLipSyncStatus(LipSyncStatus status)
+{
+    Console.WriteLine("Local lip-sync: " + (status.Configured ? "ready" : "not usable yet"));
+    Console.WriteLine($"  provider   : {Blank(status.Provider)}");
+    Console.WriteLine($"  command    : {Blank(status.Command)}"
+                      + (string.IsNullOrWhiteSpace(status.ResolvedCommand) ? string.Empty : $"  -> {status.ResolvedCommand}"));
+    Console.WriteLine($"  checkout   : {Blank(status.WorkingDirectory)}");
+    Console.WriteLine($"  checkpoint : {Blank(status.CheckpointPath)}");
+
+    foreach (var problem in status.Problems)
+    {
+        Console.WriteLine("  ! " + problem);
+    }
+
+    static string Blank(string value) => string.IsNullOrWhiteSpace(value) ? "(not set)" : value;
+}
+
 async Task<int> DoctorAsync()
 {
     var service = new EnvironmentService(store, httpClient);
@@ -637,6 +717,7 @@ int Help(int exitCode)
           segments      List the narration segments of a job
           retake        Re-speak one segment, optionally with a pronunciation respelling
           pilot         Show the pilot's details and lay its frames out as a contact sheet
+          lipsync       Configure and smoke-test a locally installed lip-sync tool
           doctor        Report the environment; --install downloads a portable FFmpeg
           voices        List the voices available from every reachable speech engine
           jobs          List jobs in the workspace
@@ -672,6 +753,7 @@ int Help(int exitCode)
           --no-captions              Skip burned-in captions
           --no-callouts              Skip keyword callouts
           --no-punch-ins             Skip the emphasis push on keyword beats
+          --no-multi-shot            Hold one framing instead of cutting wide/medium/close
           --also-aspect <ratio>      Repeatable. Deliver this ratio too, from the same narration
           --no-publishing-kit        Skip thumbnails, chapter markers and the description
           --review-script            Pause after drafting so the narration can be edited

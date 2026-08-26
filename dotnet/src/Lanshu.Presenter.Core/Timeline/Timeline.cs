@@ -69,6 +69,33 @@ public sealed class PunchIn
     public double EndSeconds => StartSeconds + DurationSeconds;
 }
 
+/// <summary>
+/// A framing held for one chapter. Scale is how far into the plate the frame sits — 1.0 is the
+/// widest available — and the vertical bias keeps a tighter shot on the face rather than the
+/// middle of the body.
+/// </summary>
+public sealed class Shot
+{
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = string.Empty;
+
+    [JsonPropertyName("start_s")]
+    public double StartSeconds { get; set; }
+
+    [JsonPropertyName("duration_s")]
+    public double DurationSeconds { get; set; }
+
+    [JsonPropertyName("scale")]
+    public double Scale { get; set; } = 1.0;
+
+    /// <summary>-1 puts the window at the top of the plate, 0 centres it, 1 puts it at the bottom.</summary>
+    [JsonPropertyName("y_bias")]
+    public double YBias { get; set; }
+
+    [JsonIgnore]
+    public double EndSeconds => StartSeconds + DurationSeconds;
+}
+
 public sealed class RenderTimeline
 {
     [JsonPropertyName("duration_s")]
@@ -111,6 +138,10 @@ public sealed class RenderTimeline
     [JsonPropertyName("punch_ins")]
     public List<PunchIn> PunchIns { get; set; } = new();
 
+    /// <summary>Per-chapter framing, cutting between wide, medium and close on the same plate.</summary>
+    [JsonPropertyName("shots")]
+    public List<Shot> Shots { get; set; } = new();
+
     public string ToMarkdown()
     {
         var builder = new StringBuilder();
@@ -128,6 +159,18 @@ public sealed class RenderTimeline
         {
             builder.AppendLine(CultureInfo.InvariantCulture,
                 $"| {clip.Kind} | {clip.AuthoredStartSeconds:0.000}s | {clip.AuthoredDurationSeconds:0.000}s | {clip.SourceOffsetSeconds:0.000}s | {Path.GetFileName(clip.Source)} |");
+        }
+
+        if (Shots.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("| Shot | Start | Duration | Scale |");
+            builder.AppendLine("|------|-------|----------|-------|");
+            foreach (var shot in Shots)
+            {
+                builder.AppendLine(CultureInfo.InvariantCulture,
+                    $"| {shot.Label} | {shot.StartSeconds:0.000}s | {shot.DurationSeconds:0.000}s | {shot.Scale:0.000} |");
+            }
         }
 
         if (PunchIns.Count > 0)

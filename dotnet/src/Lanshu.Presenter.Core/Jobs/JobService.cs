@@ -50,6 +50,8 @@ public sealed record NewJobRequest
 
     public bool PunchInsEnabled { get; init; } = true;
 
+    public bool MultiShotEnabled { get; init; } = true;
+
     public IReadOnlyList<string> AdditionalAspects { get; init; } = Array.Empty<string>();
 
     public bool PublishingKit { get; init; } = true;
@@ -181,6 +183,7 @@ public sealed class JobService
                 CaptionsEnabled = request.CaptionsEnabled,
                 KeywordCalloutsEnabled = request.KeywordCalloutsEnabled,
                 PunchInsEnabled = request.PunchInsEnabled,
+                MultiShotEnabled = request.MultiShotEnabled,
                 PublishingKit = request.PublishingKit,
                 AdditionalAspects = request.AdditionalAspects
                     .Select(aspect => aspect.Trim())

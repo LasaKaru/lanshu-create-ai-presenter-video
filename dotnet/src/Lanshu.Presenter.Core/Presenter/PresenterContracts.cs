@@ -24,6 +24,15 @@ public sealed record PresenterRequest
 
     /// <summary>A pilot is the smallest useful sample generated before any full paid run.</summary>
     public bool IsPilot { get; init; }
+
+    /// <summary>
+    /// Render the plate this many times larger than the delivered frame, so later framing and
+    /// emphasis crops take a window out of real detail instead of upscaling a finished frame.
+    /// </summary>
+    public double Oversample { get; init; } = 1.0;
+
+    /// <summary>Per-frame loudness of the narration, when the plate should react to speech.</summary>
+    public Media.AudioEnvelope? Envelope { get; init; }
 }
 
 public sealed record PresenterPlate(

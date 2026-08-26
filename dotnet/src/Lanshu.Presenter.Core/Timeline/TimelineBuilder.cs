@@ -34,7 +34,8 @@ public sealed class TimelineBuilder
         string subtitlePath,
         CancellationToken cancellationToken = default,
         IReadOnlyList<KeywordCallout>? callouts = null,
-        bool punchInsEnabled = true)
+        bool punchInsEnabled = true,
+        bool multiShotEnabled = false)
     {
         var creative = job.Creative;
         var timeline = new RenderTimeline
@@ -125,6 +126,11 @@ public sealed class TimelineBuilder
             timeline.PunchIns.AddRange(BuildPunchIns(callouts, timeline.DurationSeconds));
         }
 
+        if (multiShotEnabled)
+        {
+            timeline.Shots.AddRange(BuildShots(chapters, timeline.DurationSeconds));
+        }
+
         return timeline;
     }
 
@@ -173,8 +179,70 @@ public sealed class TimelineBuilder
         return punches;
     }
 
+    /// <summary>
+    /// Assigns a framing to each chapter so the video cuts between wide, medium and close on the
+    /// one continuous plate. The hook opens wide to establish, the close ends wide to settle, and
+    /// the body alternates so no two neighbouring chapters share a framing — a cut between two
+    /// identical framings reads as a glitch rather than an edit.
+    /// </summary>
+    internal static IReadOnlyList<Shot> BuildShots(IReadOnlyList<PlanChapter> chapters, double programDuration)
+    {
+        var shots = new List<Shot>();
+        if (chapters.Count == 0)
+        {
+            return shots;
+        }
+
+        // Scale is how far into the plate the frame sits; the bias lifts a tighter frame onto the face.
+        var medium = (Label: "medium", Scale: 1.10, YBias: -0.28);
+        var close = (Label: "close", Scale: 1.22, YBias: -0.45);
+        var wide = (Label: "wide", Scale: 1.0, YBias: 0.0);
+
+        var alternate = 0;
+        for (var index = 0; index < chapters.Count; index++)
+        {
+            var chapter = chapters[index];
+
+            // A framing needs time to register; anything shorter stays wide.
+            if (chapter.DurationSeconds < 2.5)
+            {
+                shots.Add(ToShot(wide, chapter));
+                continue;
+            }
+
+            var isOpening = index == 0;
+            var isClosing = index == chapters.Count - 1;
+
+            if (isOpening || isClosing)
+            {
+                shots.Add(ToShot(wide, chapter));
+                continue;
+            }
+
+            var choice = alternate++ % 2 == 0 ? medium : close;
+            shots.Add(ToShot(choice, chapter));
+        }
+
+        // Clamp the last shot to the program so a trailing chapter cannot run past the render.
+        if (shots.Count > 0 && shots[^1].EndSeconds > programDuration)
+        {
+            shots[^1].DurationSeconds = Math.Max(0.1, programDuration - shots[^1].StartSeconds);
+        }
+
+        return shots;
+
+        static Shot ToShot((string Label, double Scale, double YBias) framing, PlanChapter chapter) => new()
+        {
+            Label = $"{framing.Label} — {chapter.Title}",
+            StartSeconds = chapter.StartSeconds,
+            DurationSeconds = chapter.DurationSeconds,
+            Scale = framing.Scale,
+            YBias = framing.YBias,
+        };
+    }
+
     /// <summary>Chapter boundaries come from the real measured narration, not from estimates.</summary>
-    private static List<PlanChapter> BuildChapters(ScriptDocument script, NarrationResult narration)
+    internal static List<PlanChapter> BuildChapters(ScriptDocument script, NarrationResult narration)
     {
         var chapters = new List<PlanChapter>();
 

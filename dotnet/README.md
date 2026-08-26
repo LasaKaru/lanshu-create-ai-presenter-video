@@ -143,12 +143,69 @@ own licences, so you install one and point the studio at it.
 Which generator produced the motion and which tool synced the mouth are recorded as separate
 capabilities, because they are separate facts.
 
+`lanshu lipsync` removes the fiddly part — knowing the right command line for the tool you
+installed, and finding out whether it actually runs *before* a real job depends on it:
+
+```bash
+lanshu lipsync --list                              # the tools with known command lines
+lanshu lipsync --use wav2lip --dir ~/src/Wav2Lip   # fills in the command, args and checkpoint
+lanshu lipsync --test                              # PASS  wav2lip produced 2.00s of video
+```
+
+`--test` builds a two-second synthetic face and tone, runs the configured tool over them, and
+reports the duration of what came back. A tool that writes nothing, writes a still, or exits
+non-zero fails here rather than half way through a paid run. `--use` only fills in the command
+template; the weights stay yours to install.
+
+## Background replacement
+
+A presenter shot against a green screen, a messy room, or a wall that fights the caption colour
+can be cut out and re-backed before any motion is applied, so the plate, the punch-ins and the
+lip-sync repair all work on the composited still rather than around it.
+
+| Mode | What it needs |
+|---|---|
+| `chroma` | a green or blue screen; `chromakey` plus `despill` so the spill does not tint skin |
+| `matte` | a greyscale matte you supply — white keeps, black drops |
+| `cutout` | any tool that writes an RGBA PNG, e.g. `rembg`, as `{{INPUT}}` → `{{OUTPUT}}` |
+
+Backdrops are a blurred copy of the original frame, a solid colour, a two-stop gradient, or an
+image of your own. Replacement is best-effort by design: if the key, the matte or the external
+tool fails, the run keeps the original image and says so in its warnings instead of shipping a
+half-cut presenter.
+
 ## Emphasis punch-ins
 
 Each keyword callout also gets a small eased push of the frame, bound to the same spoken anchor, so
 an emphasis beat reads visually as well as textually. Pushes that would overlap are dropped rather
 than stacked — a frame that never settles reads as a wobble instead of emphasis. Turn them off with
 `--no-punch-ins`.
+
+## Motion that follows the voice
+
+The plate's sway is driven by the narration itself rather than by a fixed sine wave: the audio is
+decoded once to a per-frame loudness envelope, smoothed with a fast attack and a slow release so
+the frame leans into a phrase and settles out of it, and normalized against the 95th percentile
+rather than the peak — one loud consonant should not define the whole take's range.
+
+Only the crop's `x` and `y` are commanded per frame, through an ffmpeg `sendcmd` script. Changing
+the crop's width or height mid-stream would change the output frame size, which the encoder cannot
+accept, so the zoom stays on `zoompan` and the reaction rides the pan. Turn it off, or change how
+far it leans, with `audio_reactive` and `audio_weight` in Settings.
+
+## Multi-shot framing
+
+A single unbroken framing for a minute of narration reads as a webcam. The chapter times are
+already measured, so each chapter is given a framing — wide, medium or close — and the plate cuts
+between them on chapter boundaries:
+
+- the hook and the close stay **wide**, because that is where the whole frame matters;
+- a chapter under two and a half seconds stays wide rather than flashing a push;
+- no two neighbouring chapters share a framing, so every boundary is visible as a cut.
+
+A closer shot also raises the crop, since a tighter frame on a standing subject should hold the
+face rather than the chest. Punch-ins compose on top of the shot's scale, so an emphasis beat
+inside a close shot still reads as a push rather than jumping back to wide.
 
 ## Multi-aspect delivery and the publishing kit
 
@@ -251,7 +308,7 @@ The studio needs `ffmpeg` and `ffprobe`. If they are not on the machine, open th
 
 ```bash
 cd dotnet
-dotnet test LanshuPresenter.sln          # 42 tests
+dotnet test LanshuPresenter.sln          # 121 tests
 ./build/publish.sh win-x64               # or linux-x64, osx-arm64, ...
 ```
 
@@ -288,8 +345,8 @@ review (approve it with `lanshu approve --script`). `--also-aspect` is repeatabl
 contact sheet so it can be reviewed without a video player; `--open` launches it in the default
 player.
 
-Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `voices`,
-`jobs`, `config`, `version`.
+Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `lipsync`,
+`voices`, `jobs`, `config`, `version`.
 `lanshu` with no arguments prints the full reference.
 
 `lanshu run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Lanshu.Presenter.Core.Configuration;
 using Lanshu.Presenter.Core.Media;
+using Lanshu.Presenter.Core.Util;
 
 namespace Lanshu.Presenter.Core.Presenter;
 
@@ -46,15 +47,59 @@ public sealed class MotionPlateGenerator : IPresenterGenerator
         var stream = probe.Video
             ?? throw new PresenterGenerationException("the presenter image has no decodable image stream");
 
+        string? scriptDirectory = null;
+
+        // The plate is rendered larger than the delivered frame when later stages crop into it,
+        // so framing and emphasis moves take a window out of real detail rather than upscaling
+        // a finished frame.
+        var oversample = Math.Clamp(request.Oversample, 1.0, 2.0);
+        var plateWidth = EnsureEven((int)Math.Ceiling(request.Width * oversample));
+        var plateHeight = EnsureEven((int)Math.Ceiling(request.Height * oversample));
+
+        var reactive = _settings.AudioReactive
+                       && request.Envelope is { FrameCount: > 0 }
+                       && !request.IsPilot;
+
+        if (reactive)
+        {
+            scriptDirectory = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(request.OutputPath))!,
+                ".motion");
+            Directory.CreateDirectory(scriptDirectory);
+
+            var panWidth = EnsureEven((int)Math.Ceiling(plateWidth * SwayHeadroom));
+            var panHeight = EnsureEven((int)Math.Ceiling(plateHeight * SwayHeadroom));
+
+            var script = MotionScript.Build(
+                new MotionScript.Options
+                {
+                    SourceWidth = panWidth,
+                    SourceHeight = panHeight,
+                    TargetWidth = plateWidth,
+                    TargetHeight = plateHeight,
+                    Fps = request.Fps,
+                    FrameCount = Math.Max(1, (int)Math.Round(request.DurationSeconds * request.Fps)),
+                    SwayPixels = _settings.SwayPixels,
+                    BreathPeriodSeconds = _settings.BreathPeriodSeconds,
+                    AudioWeight = _settings.AudioWeight,
+                },
+                request.Envelope!);
+
+            FileSystemUtil.WriteAllTextUtf8(Path.Combine(scriptDirectory, MotionScript.FileName), script);
+        }
+
         var filter = BuildFilter(
             stream.Width,
             stream.Height,
-            request.Width,
-            request.Height,
+            plateWidth,
+            plateHeight,
             request.Fps,
-            request.DurationSeconds);
+            request.DurationSeconds,
+            reactive);
 
-        _log?.Invoke($"Rendering motion plate {request.Width}x{request.Height} @ {request.Fps}fps for {request.DurationSeconds:0.00}s");
+        _log?.Invoke(
+            $"Rendering motion plate {plateWidth}x{plateHeight} @ {request.Fps}fps for {request.DurationSeconds:0.00}s"
+            + (reactive ? " with audio-reactive motion" : string.Empty));
 
         await _ffmpeg.RunEncodeAsync(
             "presenter motion plate",
@@ -84,7 +129,14 @@ public sealed class MotionPlateGenerator : IPresenterGenerator
 
                 return arguments;
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            scriptDirectory).ConfigureAwait(false);
+
+        if (scriptDirectory is not null)
+        {
+            FileSystemUtil.TryDeleteDirectory(scriptDirectory);
+        }
+
         var duration = await _ffmpeg.DurationAsync(request.OutputPath, cancellationToken).ConfigureAwait(false);
         return PresenterPlate.Local(request.OutputPath, duration, Provider, Model);
     }
@@ -94,13 +146,17 @@ public sealed class MotionPlateGenerator : IPresenterGenerator
     /// that would discard more than a third of the frame risks cutting the face, so the
     /// contained layout wins there.
     /// </summary>
+    /// <summary>Extra plate area the pan needs to move across without reaching an edge.</summary>
+    private const double SwayHeadroom = 1.06;
+
     internal string BuildFilter(
         int sourceWidth,
         int sourceHeight,
         int targetWidth,
         int targetHeight,
         int fps,
-        double durationSeconds)
+        double durationSeconds,
+        bool reactive = false)
     {
         var totalFrames = Math.Max(2, (int)Math.Round(durationSeconds * fps));
         var zoom = Math.Clamp(_settings.ZoomPercent, 0, 25) / 100.0;
@@ -139,20 +195,35 @@ public sealed class MotionPlateGenerator : IPresenterGenerator
             zoom,
             totalFrames);
 
-        var xExpression = string.Format(
-            CultureInfo.InvariantCulture,
-            "iw/2-(iw/zoom/2)+{0:0.##}*sin(2*PI*on/{1:0.##})",
-            sway,
-            fps * period);
+        if (reactive)
+        {
+            // zoompan keeps the slow push, which is a pure function of frame number. The sway is
+            // a fixed-size crop window panned by sendcmd, because only that can follow the audio.
+            var panWidth = EnsureEven((int)Math.Ceiling(targetWidth * SwayHeadroom));
+            var panHeight = EnsureEven((int)Math.Ceiling(targetHeight * SwayHeadroom));
 
-        var yExpression = string.Format(
-            CultureInfo.InvariantCulture,
-            "ih/2-(ih/zoom/2)+{0:0.##}*sin(2*PI*on/{1:0.##})",
-            bob,
-            fps * period * 1.7);
+            filter.Append(CultureInfo.InvariantCulture,
+                $"[src]zoompan=z='{zoomExpression}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={panWidth}x{panHeight}:fps={fps},");
+            filter.Append(CultureInfo.InvariantCulture,
+                $"sendcmd=f={MotionScript.FileName},crop={targetWidth}:{targetHeight}:{(panWidth - targetWidth) / 2}:{(panHeight - targetHeight) / 2}");
+        }
+        else
+        {
+            var xExpression = string.Format(
+                CultureInfo.InvariantCulture,
+                "iw/2-(iw/zoom/2)+{0:0.##}*sin(2*PI*on/{1:0.##})",
+                sway,
+                fps * period);
 
-        filter.Append(CultureInfo.InvariantCulture,
-            $"[src]zoompan=z='{zoomExpression}':x='{xExpression}':y='{yExpression}':d=1:s={targetWidth}x{targetHeight}:fps={fps}");
+            var yExpression = string.Format(
+                CultureInfo.InvariantCulture,
+                "ih/2-(ih/zoom/2)+{0:0.##}*sin(2*PI*on/{1:0.##})",
+                bob,
+                fps * period * 1.7);
+
+            filter.Append(CultureInfo.InvariantCulture,
+                $"[src]zoompan=z='{zoomExpression}':x='{xExpression}':y='{yExpression}':d=1:s={targetWidth}x{targetHeight}:fps={fps}");
+        }
 
         if (_settings.Grade)
         {

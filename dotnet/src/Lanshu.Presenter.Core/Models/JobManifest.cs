@@ -156,6 +156,10 @@ public sealed class JobCreative
     [JsonPropertyName("punch_ins_enabled")]
     public bool PunchInsEnabled { get; set; } = true;
 
+    /// <summary>Cut between wide, medium and close framings at chapter boundaries.</summary>
+    [JsonPropertyName("multi_shot_enabled")]
+    public bool MultiShotEnabled { get; set; } = true;
+
     /// <summary>Extra aspect ratios to deliver from the same locked narration.</summary>
     [JsonPropertyName("additional_aspects")]
     public List<string> AdditionalAspects { get; set; } = new();
