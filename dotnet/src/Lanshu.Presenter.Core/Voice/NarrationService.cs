@@ -76,21 +76,51 @@ public sealed class NarrationService
             throw new SpeechSynthesisException("the script contains no narration to speak");
         }
 
+        // Segments already spoken with the same words and the same voice configuration are kept.
+        // Re-synthesizing them would cost real money on a paid engine and change nothing.
+        var previous = job.Voice.Sections.ToDictionary(section => section.Index, section => section);
+        var configurationChanged = !string.Equals(job.Voice.Provider, synthesizer.Provider, StringComparison.Ordinal);
+
         var segments = new List<NarrationSegment>();
-        var normalizedFiles = new List<string>();
+        var reused = 0;
 
         for (var index = 0; index < units.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var (beatIndex, text) = units[index];
             var stem = $"seg-{index + 1:00}";
-            var rawPath = Path.Combine(paths.AudioRaw, stem + SuggestExtension(synthesizer));
             var normalizedPath = Path.Combine(paths.AudioReference, stem + ".wav");
 
-            _log?.Invoke($"Synthesizing {stem} ({text.Length} chars) with {synthesizer.Provider}");
+            previous.TryGetValue(index, out var prior);
+            var spokenText = string.IsNullOrWhiteSpace(prior?.SpokenOverride) ? text : prior!.SpokenOverride;
+
+            if (!configurationChanged
+                && prior is not null
+                && !prior.RetakeRequested
+                && string.Equals(prior.Text, text, StringComparison.Ordinal)
+                && File.Exists(normalizedPath)
+                && FileSystemUtil.SafeLength(normalizedPath) > 0)
+            {
+                var existingDuration = await _ffmpeg
+                    .DurationAsync(normalizedPath, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (existingDuration > 0)
+                {
+                    segments.Add(new NarrationSegment(index, beatIndex, text, normalizedPath, 0, existingDuration));
+                    reused++;
+                    continue;
+                }
+            }
+
+            var rawPath = Path.Combine(paths.AudioRaw, stem + SuggestExtension(synthesizer));
+            _log?.Invoke(
+                $"Synthesizing {stem} ({spokenText.Length} chars) with {synthesizer.Provider}"
+                + (ReferenceEquals(spokenText, text) || spokenText == text ? string.Empty : " using a pronunciation override"));
+
             FileSystemUtil.TryDelete(rawPath);
             await synthesizer.SynthesizeAsync(
-                new SpeechRequest(text, rawPath)
+                new SpeechRequest(spokenText, rawPath)
                 {
                     VoiceId = voiceId,
                     Rate = rate,
@@ -108,7 +138,20 @@ public sealed class NarrationService
             }
 
             segments.Add(new NarrationSegment(index, beatIndex, text, normalizedPath, 0, duration));
-            normalizedFiles.Add(normalizedPath);
+        }
+
+        // Any segment file left over from a longer previous script would confuse a later reuse pass.
+        foreach (var stale in Directory
+                     .EnumerateFiles(paths.AudioReference, "seg-*.wav")
+                     .Where(file => !segments.Any(segment =>
+                         string.Equals(segment.File, file, StringComparison.OrdinalIgnoreCase))))
+        {
+            FileSystemUtil.TryDelete(stale);
+        }
+
+        if (reused > 0)
+        {
+            _log?.Invoke($"Reused {reused} of {units.Count} already-spoken segments");
         }
 
         // Lay out the real durations with breathing gaps; this is the timeline everything else uses.
@@ -135,13 +178,20 @@ public sealed class NarrationService
 
         job.Voice.Provider = synthesizer.Provider;
         job.Voice.Sections = positioned
-            .Select(segment => new VoiceSection
+            .Select(segment =>
             {
-                Index = segment.Index,
-                Text = segment.Text,
-                File = paths.Relative(segment.File),
-                DurationSeconds = Math.Round(segment.DurationSeconds, 3),
-                StartSeconds = Math.Round(segment.StartSeconds, 3),
+                previous.TryGetValue(segment.Index, out var prior);
+                return new VoiceSection
+                {
+                    Index = segment.Index,
+                    Text = segment.Text,
+                    // A pronunciation override survives a re-run; a re-take request is consumed by it.
+                    SpokenOverride = prior?.SpokenOverride ?? string.Empty,
+                    RetakeRequested = false,
+                    File = paths.Relative(segment.File),
+                    DurationSeconds = Math.Round(segment.DurationSeconds, 3),
+                    StartSeconds = Math.Round(segment.StartSeconds, 3),
+                };
             })
             .ToList();
 

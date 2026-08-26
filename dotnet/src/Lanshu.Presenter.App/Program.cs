@@ -430,6 +430,67 @@ app.MapPost("/api/job/script", async (HttpRequest request) =>
     }
 });
 
+app.MapGet("/api/job/segments", (string dir) =>
+{
+    try
+    {
+        var paths = new JobPaths(FileSystemUtil.ExpandPath(dir));
+        var job = new JobService().Load(paths);
+        return Results.Json(new
+        {
+            segments = job.Voice.Sections.OrderBy(section => section.Index).Select(section => new
+            {
+                section.Index,
+                section.Text,
+                spokenOverride = section.SpokenOverride,
+                startSeconds = section.StartSeconds,
+                durationSeconds = section.DurationSeconds,
+                audio = section.File,
+            }),
+            provider = job.Voice.Provider,
+            voiceId = job.Voice.VoiceId,
+        });
+    }
+    catch (Exception exception)
+    {
+        return Results.Json(new { error = exception.Message }, statusCode: 400);
+    }
+});
+
+app.MapPost("/api/job/retake", async (HttpRequest request) =>
+{
+    var body = await request.ReadFromJsonAsync<JsonObject>();
+    var directory = Text(body, "directory");
+    if (string.IsNullOrWhiteSpace(directory))
+    {
+        return Results.BadRequest(new { error = "directory is required" });
+    }
+
+    try
+    {
+        var paths = new JobPaths(FileSystemUtil.ExpandPath(directory));
+        var job = new JobService().Load(paths);
+        var index = (int)Number(body, "index", -1);
+
+        // An absent "say" leaves any existing override alone; an empty one clears it.
+        var spoken = body?["say"] is null ? null : Text(body, "say");
+
+        var result = new SegmentRetakeService().Request(paths, job, index, spoken);
+        return Results.Json(new
+        {
+            ok = true,
+            index = result.Index,
+            text = result.Text,
+            spokenText = result.SpokenText,
+            overrideChanged = result.OverrideChanged,
+        });
+    }
+    catch (Exception exception)
+    {
+        return Results.Json(new { error = exception.Message }, statusCode: 400);
+    }
+});
+
 app.MapPost("/api/jobs/run", async (HttpRequest request, RunManager runs) =>
 {
     var body = await request.ReadFromJsonAsync<JsonObject>();

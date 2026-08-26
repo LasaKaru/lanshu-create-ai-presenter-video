@@ -196,6 +196,10 @@ public sealed class JobVoice
     [JsonPropertyName("program_lufs")]
     public double ProgramLufs { get; set; } = -16;
 
+    /// <summary>Voice id created from the authorized sample, if one was cloned for this job.</summary>
+    [JsonPropertyName("cloned_voice_id")]
+    public string ClonedVoiceId { get; set; } = string.Empty;
+
     [JsonPropertyName("sections")]
     public List<VoiceSection> Sections { get; set; } = new();
 }
@@ -205,8 +209,24 @@ public sealed class VoiceSection
     [JsonPropertyName("index")]
     public int Index { get; set; }
 
+    /// <summary>The script wording. Captions and keyword anchors always use this.</summary>
     [JsonPropertyName("text")]
     public string Text { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What is actually sent to the speech engine, when it differs from the script — a
+    /// respelling that fixes a mispronunciation, for instance. Captions keep the script wording.
+    /// </summary>
+    [JsonPropertyName("spoken_override")]
+    public string SpokenOverride { get; set; } = string.Empty;
+
+    /// <summary>Set to force a re-synthesis of this segment on the next run.</summary>
+    [JsonPropertyName("retake_requested")]
+    public bool RetakeRequested { get; set; }
+
+    [JsonIgnore]
+    public string EffectiveSpokenText =>
+        string.IsNullOrWhiteSpace(SpokenOverride) ? Text : SpokenOverride;
 
     [JsonPropertyName("file")]
     public string File { get; set; } = string.Empty;

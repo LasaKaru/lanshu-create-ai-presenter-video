@@ -8,6 +8,7 @@ using Lanshu.Presenter.Core.Models;
 using Lanshu.Presenter.Core.Pipeline;
 using Lanshu.Presenter.Core.Preflight;
 using Lanshu.Presenter.Core.Util;
+using Lanshu.Presenter.Core.Util;
 using Lanshu.Presenter.Core.Voice;
 
 var command = args.FirstOrDefault()?.ToLowerInvariant() ?? "help";
@@ -24,6 +25,9 @@ try
         "run" => await RunAsync(),
         "approve" => Approve(),
         "finalize" => await FinalizeAsync(),
+        "segments" => Segments(),
+        "retake" => Retake(),
+        "pilot" => await PilotAsync(),
         "doctor" => await DoctorAsync(),
         "voices" => await VoicesAsync(),
         "jobs" => JobsList(),
@@ -176,6 +180,11 @@ async Task<int> RunAsync()
                 Console.WriteLine("Edit the narration in: " + Path.Combine(paths.Docs, "script.json"));
             }
 
+            if (result.ApprovalKind == "pilot")
+            {
+                Console.WriteLine($"Review it with: lanshu pilot --job-dir \"{paths.Root}\" [--open]");
+            }
+
             Console.WriteLine($"Approve with: lanshu approve --job-dir \"{paths.Root}\" --{result.ApprovalKind.Replace('_', '-')}");
             return 3;
 
@@ -284,6 +293,181 @@ async Task<int> FinalizeAsync()
     Console.WriteLine(JobJson.Serialize(report).TrimEnd());
     return 0;
 }
+
+int Segments()
+{
+    var paths = ResolvePaths();
+    var job = new JobService().Load(paths);
+
+    if (job.Voice.Sections.Count == 0)
+    {
+        Console.WriteLine("This job has no narration segments yet. Run it once first.");
+        return 0;
+    }
+
+    Console.WriteLine($"{"#",3}  {"START",8}  {"LENGTH",7}  TEXT");
+    foreach (var section in job.Voice.Sections.OrderBy(section => section.Index))
+    {
+        Console.WriteLine(
+            $"{section.Index,3}  {section.StartSeconds,8:0.00}  {section.DurationSeconds,7:0.00}  "
+            + Truncate(section.Text, 68));
+
+        if (!string.IsNullOrWhiteSpace(section.SpokenOverride))
+        {
+            Console.WriteLine($"{string.Empty,3}  {string.Empty,8}  {string.Empty,7}  spoken as: {Truncate(section.SpokenOverride, 58)}");
+        }
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Re-take one with:  lanshu retake --job-dir <dir> --index <n> [--say \"respelling\"]");
+    return 0;
+}
+
+int Retake()
+{
+    var paths = ResolvePaths();
+    var jobs = new JobService();
+    var job = jobs.Load(paths);
+
+    if (!line.Has("index"))
+    {
+        Console.Error.WriteLine("--index <n> is required. Run 'lanshu segments' to see them.");
+        return 64;
+    }
+
+    var index = line.Integer("index", -1);
+    var spoken = line.Has("clear-say") ? string.Empty : line.Value("say");
+
+    var result = new SegmentRetakeService().Request(paths, job, index, spoken);
+
+    Console.WriteLine($"Segment {result.Index} will be spoken again on the next run.");
+    Console.WriteLine($"  script: {result.Text}");
+    if (!string.Equals(result.Text, result.SpokenText, StringComparison.Ordinal))
+    {
+        Console.WriteLine($"  spoken: {result.SpokenText}");
+        Console.WriteLine("  (captions keep the script wording)");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Every other segment keeps its existing audio. Run the job to rebuild.");
+    return 0;
+}
+
+async Task<int> PilotAsync()
+{
+    var paths = ResolvePaths();
+    var job = new JobService().Load(paths);
+    var pilot = Path.Combine(paths.VideoCandidates, "pilot.mp4");
+
+    if (!File.Exists(pilot))
+    {
+        Console.WriteLine("No pilot has been generated for this job yet.");
+        Console.WriteLine("A pilot is produced before the first full paid presenter run.");
+        return 1;
+    }
+
+    var settings = store.Load();
+    var toolset = await MediaToolset.ResolveAsync(settings.FfmpegPath, settings.FfprobePath);
+    var ffmpeg = new FfmpegService(toolset);
+    var probe = await ffmpeg.ProbeAsync(pilot);
+    var video = probe.Video;
+
+    Console.WriteLine("Pilot: " + pilot);
+    Console.WriteLine($"  duration : {probe.DurationSeconds:0.00}s");
+    if (video is not null)
+    {
+        Console.WriteLine($"  format   : {video.Width}x{video.Height} @ {video.FrameRate:0.##}fps, {video.CodecName}");
+    }
+
+    Console.WriteLine($"  audio    : {(probe.HasAudio ? "present" : "none")}");
+    Console.WriteLine($"  provider : {job.Capabilities.MainPresenter.Provider}");
+
+    // A terminal cannot play video, so lay the pilot out as frames that can be opened as one image.
+    var sheet = Path.Combine(paths.QaContacts, "pilot-contact-sheet.png");
+    try
+    {
+        await BuildPilotSheetAsync(ffmpeg, pilot, probe.DurationSeconds, sheet);
+        Console.WriteLine("  frames   : " + sheet);
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine("  (could not build a contact sheet: " + exception.Message + ")");
+    }
+
+    if (line.Flag("open"))
+    {
+        OpenInDefaultApplication(pilot);
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Check identity, mouth timing, blinking, hands and lighting at normal speed.");
+    Console.WriteLine($"Approve with: lanshu approve --job-dir \"{paths.Root}\" --pilot");
+    return 0;
+}
+
+async Task BuildPilotSheetAsync(FfmpegService ffmpeg, string pilot, double duration, string destination)
+{
+    var scratch = Path.Combine(Path.GetTempPath(), $"lanshu-pilot-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(scratch);
+
+    try
+    {
+        for (var index = 0; index < 6; index++)
+        {
+            var timestamp = duration * ((index + 0.5) / 6.0);
+            await ffmpeg.ExtractFrameAsync(
+                pilot,
+                Math.Max(0, timestamp),
+                Path.Combine(scratch, $"f-{index + 1:00}.png"),
+                "scale=320:-2:flags=lanczos");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        var tile = Path.Combine(scratch, "sheet.png");
+        await ffmpeg.RunCheckedAsync(
+            "pilot contact sheet",
+            new[]
+            {
+                "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                "-framerate", "1", "-start_number", "1",
+                "-i", Path.Combine(scratch, "f-%02d.png"),
+                "-frames:v", "1",
+                "-vf", "tile=3x2:padding=10:margin=10:color=0x101218",
+                "-update", "1",
+                tile,
+            });
+
+        File.Move(tile, destination, overwrite: true);
+    }
+    finally
+    {
+        FileSystemUtil.TryDeleteDirectory(scratch);
+    }
+}
+
+void OpenInDefaultApplication(string path)
+{
+    try
+    {
+        System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true })?.Dispose();
+    }
+    catch (Exception)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo("xdg-open", path))?.Dispose();
+        }
+        catch (Exception)
+        {
+            Console.Error.WriteLine("Could not open the file; the path is printed above.");
+        }
+    }
+}
+
+static string Truncate(string text, int maxLength) =>
+    text.Length <= maxLength ? text : text[..(maxLength - 1)] + "\u2026";
 
 async Task<int> DoctorAsync()
 {
@@ -450,6 +634,9 @@ int Help(int exitCode)
           approve       Record an approval (script, paid generation, pilot, rights, upload, review)
           preflight     Validate a job's inputs and write qa/reports/preflight.json
           finalize      Master, share, verify and contact-sheet an existing render
+          segments      List the narration segments of a job
+          retake        Re-speak one segment, optionally with a pronunciation respelling
+          pilot         Show the pilot's details and lay its frames out as a contact sheet
           doctor        Report the environment; --install downloads a portable FFmpeg
           voices        List the voices available from every reachable speech engine
           jobs          List jobs in the workspace

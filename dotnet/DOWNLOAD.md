@@ -54,6 +54,12 @@ EXTRAS IN EVERY RENDER
   are delivered from the same narration, so a 9:16 and a 16:9 cut stay in
   sync with each other.
 
+FIXING ONE SENTENCE
+
+  If a single line sounds wrong, re-take just that segment instead of
+  re-rendering everything - and give the engine a respelling if it
+  mispronounced a name. The captions keep the real spelling.
+
 REAL LIP-SYNC
 
   Install Wav2Lip, SadTalker or video-retalking and point the studio at it

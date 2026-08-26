@@ -151,6 +151,55 @@ public sealed class PresenterVideoPipeline
                     $"the '{synthesizer.Provider}' voice sends narration text to a remote service; remote_upload_approved is not set on this job");
             }
 
+            // A voice is a person's likeness. Cloning only happens when the sample owner's
+            // permission and the upload approval are both recorded, and the engine supports it.
+            if (string.IsNullOrWhiteSpace(job.Voice.VoiceId) && !string.IsNullOrWhiteSpace(job.Input.VoiceSample))
+            {
+                var eligibility = CloneEligibility.Evaluate(
+                    job.Input.VoiceSample,
+                    job.Input.VoiceCloneApproved,
+                    job.Input.RemoteUploadApproved,
+                    alreadyHaveVoiceId: false);
+
+                if (synthesizer is not IVoiceCloner cloner)
+                {
+                    warnings.Add(
+                        $"a voice sample was supplied but the '{synthesizer.Provider}' engine cannot clone voices; a stock voice is used instead");
+                }
+                else if (!eligibility.Allowed)
+                {
+                    warnings.Add($"the voice sample was not cloned: {eligibility.Reason}");
+                }
+                else
+                {
+                    Report("audio_locked", "Cloning the authorized voice sample", 0.16);
+                    try
+                    {
+                        var cloned = await cloner
+                            .CloneAsync($"lanshu-{job.JobId}", job.Input.VoiceSample, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        job.Voice.VoiceId = cloned.VoiceId;
+                        job.Voice.ClonedVoiceId = cloned.VoiceId;
+                        job.Capabilities.VoiceGeneration.Notes =
+                            $"voice cloned from the authorized sample as '{cloned.Name}'";
+                        job.Record("audio_locked", $"voice cloned via {cloned.Provider}");
+                        _jobs.Save(paths, job);
+
+                        warnings.Add(
+                            $"a voice named '{cloned.Name}' was created in your {cloned.Provider} account (id {cloned.VoiceId}). Delete it there when the job is finished.");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        warnings.Add($"voice cloning failed, falling back to a stock voice: {exception.Message}");
+                    }
+                }
+            }
+
             Report("audio_locked", $"Synthesizing narration with {synthesizer.Provider}", 0.18);
             var narration = await new NarrationService(ffmpeg, Log)
                 .BuildAsync(paths, job, script, synthesizer, cancellationToken)

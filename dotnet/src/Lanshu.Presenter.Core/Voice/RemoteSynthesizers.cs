@@ -7,7 +7,22 @@ using Lanshu.Presenter.Core.Util;
 
 namespace Lanshu.Presenter.Core.Voice;
 
-public sealed class ElevenLabsSynthesizer : ISpeechSynthesizer
+/// <summary>Content types for the sample formats a cloning endpoint accepts.</summary>
+internal static class RemoteMime
+{
+    public static string ForAudio(string extension) => extension.ToLowerInvariant() switch
+    {
+        ".wav" => "audio/wav",
+        ".mp3" => "audio/mpeg",
+        ".m4a" or ".aac" or ".mp4" => "audio/mp4",
+        ".flac" => "audio/flac",
+        ".ogg" or ".oga" => "audio/ogg",
+        ".webm" => "audio/webm",
+        _ => "application/octet-stream",
+    };
+}
+
+public sealed class ElevenLabsSynthesizer : ISpeechSynthesizer, IVoiceCloner
 {
     private readonly VoiceSettings _settings;
     private readonly SettingsStore _store;
@@ -104,6 +119,83 @@ public sealed class ElevenLabsSynthesizer : ISpeechSynthesizer
 
         using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
         await WriteAudioAsync(response, request.OutputPath, "ElevenLabs", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Creates a voice from the authorized sample. Authorization is the caller's job — by the
+    /// time this runs, the sample owner's permission and the upload approval are on the record.
+    /// </summary>
+    public async Task<ClonedVoice> CloneAsync(
+        string name,
+        string samplePath,
+        CancellationToken cancellationToken = default)
+    {
+        var apiKey = _store.GetSecret("ELEVENLABS_API_KEY");
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new VoiceCloneException("ELEVENLABS_API_KEY is not set");
+        }
+
+        var full = FileSystemUtil.ExpandPath(samplePath);
+        if (!File.Exists(full))
+        {
+            throw new VoiceCloneException($"the voice sample does not exist: {full}");
+        }
+
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent(name), "name");
+        content.Add(
+            new StringContent("Created by Lanshu AI Presenter Studio from an authorized sample."),
+            "description");
+
+        var bytes = await File.ReadAllBytesAsync(full, cancellationToken).ConfigureAwait(false);
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType =
+            new MediaTypeHeaderValue(RemoteMime.ForAudio(Path.GetExtension(full)));
+        content.Add(fileContent, "files", Path.GetFileName(full));
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"{BaseUrl}/v1/voices/add")
+        {
+            Content = content,
+        };
+        message.Headers.Add("xi-api-key", apiKey);
+
+        using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new VoiceCloneException(
+                $"voice cloning failed ({(int)response.StatusCode}): {TextUtil.Truncate(body, 300)}");
+        }
+
+        var voiceId = JsonNode.Parse(body)?["voice_id"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(voiceId))
+        {
+            throw new VoiceCloneException("the clone succeeded but returned no voice id");
+        }
+
+        return new ClonedVoice(voiceId, name, Provider);
+    }
+
+    public async Task DeleteAsync(string voiceId, CancellationToken cancellationToken = default)
+    {
+        var apiKey = _store.GetSecret("ELEVENLABS_API_KEY");
+        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(voiceId))
+        {
+            return;
+        }
+
+        using var message = new HttpRequestMessage(
+            HttpMethod.Delete,
+            $"{BaseUrl}/v1/voices/{Uri.EscapeDataString(voiceId)}");
+        message.Headers.Add("xi-api-key", apiKey);
+
+        using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new VoiceCloneException(
+                $"could not delete voice {voiceId} ({(int)response.StatusCode})");
+        }
     }
 
     internal static async Task WriteAudioAsync(

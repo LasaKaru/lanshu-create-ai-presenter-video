@@ -82,6 +82,39 @@ state or overwrites the accepted presenter plate.
 
 Set the proxy's short edge in Settings; 640 is the default.
 
+## Voice cloning
+
+When a job carries an authorized voice sample and the speech engine supports cloning, the sample
+is uploaded once and the resulting voice is used for the whole narration. A voice is a person's
+likeness, so this only happens when **both** approvals are on the job: `voice_clone_approved` (the
+sample owner's permission) and `remote_upload_approved`. Missing either, the run says why in its
+warnings and falls back to a stock voice rather than uploading anything.
+
+The created voice id is recorded on the job, and the run tells you a voice now exists in your
+provider account so you can delete it when the job is done. ElevenLabs is the engine in this set
+with a voice-add endpoint; others report that they cannot clone rather than failing the run.
+
+## Narration reuse and per-segment re-takes
+
+A re-run only speaks what changed. Segments whose script wording is unchanged and whose audio still
+exists are reused, so a second render costs nothing on a paid engine. Changing the voice provider
+re-speaks everything, because mixing two voices in one narration is never what you want.
+
+To fix a single sentence — a mispronounced name, an odd emphasis — re-take just that segment:
+
+```bash
+lanshu segments --job-dir <dir>
+lanshu retake  --job-dir <dir> --index 3 --say "measured wunce, respected everywhere"
+lanshu run     --job-dir <dir>
+```
+
+`--say` changes only **what reaches the speech engine**. Captions and keyword anchors keep the
+script's wording, so a respelling fixes the audio without corrupting what the viewer reads. Omit
+`--say` to re-speak the script wording as-is; `--clear-say` removes an existing respelling.
+
+Re-taking shifts every later segment's start, so the assembled narration, captions and render are
+rebuilt — but the other segments' audio is kept, which is the point.
+
 ## Lip-sync
 
 The motion plate has no mouth movement of its own. When a lip-sync tool is available the pipeline
@@ -251,7 +284,12 @@ Add `--preview` to `run` for the fast proxy, and `--review-script` to `init` to 
 review (approve it with `lanshu approve --script`). `--also-aspect` is repeatable;
 `--no-punch-ins` and `--no-publishing-kit` turn off the extras.
 
-Other commands: `preflight`, `approve`, `finalize`, `voices`, `jobs`, `config`, `version`.
+`lanshu pilot` shows a pilot's real duration, format and provider, and lays its frames out as a
+contact sheet so it can be reviewed without a video player; `--open` launches it in the default
+player.
+
+Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `voices`,
+`jobs`, `config`, `version`.
 `lanshu` with no arguments prints the full reference.
 
 `lanshu run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is
