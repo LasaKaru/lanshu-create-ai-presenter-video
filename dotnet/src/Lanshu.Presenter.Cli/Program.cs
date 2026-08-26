@@ -9,7 +9,6 @@ using Lanshu.Presenter.Core.Pipeline;
 using Lanshu.Presenter.Core.Preflight;
 using Lanshu.Presenter.Core.Presenter;
 using Lanshu.Presenter.Core.Util;
-using Lanshu.Presenter.Core.Util;
 using Lanshu.Presenter.Core.Voice;
 
 var command = args.FirstOrDefault()?.ToLowerInvariant() ?? "help";
