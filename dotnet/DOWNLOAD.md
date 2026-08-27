@@ -152,6 +152,22 @@ PUBLISHING
   approving a private upload can never quietly turn into a public one. New
   uploads default to private.
 
+MAKING A LOT OF THEM AT ONCE
+
+  Put a list of topics in a spreadsheet, save it as CSV, and run
+
+    lanshu batch --csv queue.csv --presenter-image face.png
+
+  It makes them one at a time and remembers what it finished. If it stops
+  overnight - a provider goes down, the machine reboots - run the same
+  command again and it picks up only what is still missing.
+
+RUNNING IT WITHOUT THE WINDOW
+
+  LanshuPresenterStudio --headless runs the same thing with no browser and
+  no console banner, printing one line of JSON with the address and token
+  so a script can drive it.
+
 WITH API KEYS (Settings tab)
 
   Anthropic or OpenAI   full script drafting from a topic

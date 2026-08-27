@@ -18,11 +18,39 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.FileProviders;
 
 var cliPort = ReadOption(args, "--port");
-var noBrowser = args.Contains("--no-browser", StringComparer.OrdinalIgnoreCase);
-var port = int.TryParse(cliPort, out var parsedPort) ? parsedPort : FreePort();
 
-// A token in the URL keeps other local processes from driving the studio's file and render APIs.
-var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+// Headless is the same API with the browser affordances removed: nothing is opened, the port is
+// fixed rather than picked at random, and the token can be supplied so an automation client
+// already knows it. Everything a script needs, nothing that assumes a person is watching.
+var headless = args.Contains("--headless", StringComparer.OrdinalIgnoreCase);
+var noBrowser = headless || args.Contains("--no-browser", StringComparer.OrdinalIgnoreCase);
+var port = int.TryParse(cliPort, out var parsedPort)
+    ? parsedPort
+    : (headless ? 8760 : FreePort());
+
+// A token keeps other local processes from driving the studio's file and render APIs. In headless
+// mode it may be supplied so a caller does not have to scrape it from the console; a supplied one
+// is used verbatim, because inventing a different token would silently lock the caller out.
+var suppliedToken = ReadOption(args, "--token")
+                    ?? System.Environment.GetEnvironmentVariable("LANSHU_TOKEN");
+var token = string.IsNullOrWhiteSpace(suppliedToken)
+    ? Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant()
+    : suppliedToken.Trim();
+
+// Binding beyond loopback exposes render and file APIs to the network, so it is opt-in, named
+// explicitly, and refused without a token the operator chose.
+var host = ReadOption(args, "--host") ?? "127.0.0.1";
+if (!string.Equals(host, "127.0.0.1", StringComparison.Ordinal)
+    && !string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+    && string.IsNullOrWhiteSpace(suppliedToken))
+{
+    Console.Error.WriteLine(
+        "Refusing to bind to " + host + " with a generated token.");
+    Console.Error.WriteLine(
+        "Binding off loopback exposes the render and file APIs, so pass --token <value> "
+        + "(or set LANSHU_TOKEN) and keep it secret.");
+    return 64;
+}
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -33,7 +61,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
-builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+builder.WebHost.UseUrls($"http://{host}:{port}");
 
 builder.Services.AddSingleton(new SettingsStore());
 builder.Services.AddSingleton<RunManager>();
@@ -797,13 +825,41 @@ app.MapPost("/api/reveal", async (HttpRequest request, SettingsStore store) =>
     return Results.Json(new { ok = true });
 });
 
-var url = $"http://127.0.0.1:{port}/?t={token}";
-Console.WriteLine();
-Console.WriteLine("  Lanshu AI Presenter Studio " + EnvironmentService.AppVersion);
-Console.WriteLine("  " + url);
-Console.WriteLine();
-Console.WriteLine("  Keep this window open while the studio is running. Press Ctrl+C to stop.");
-Console.WriteLine();
+var url = $"http://{host}:{port}/?t={token}";
+
+if (headless)
+{
+    // One machine-readable line, so a supervisor can capture the address and token without
+    // parsing a banner meant for a person.
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        service = "lanshu-presenter-studio",
+        version = EnvironmentService.AppVersion,
+        host,
+        port,
+        token,
+        url,
+        api = new[]
+        {
+            "GET  /api/jobs",
+            "POST /api/jobs",
+            "POST /api/jobs/run",
+            "GET  /api/job?dir=",
+            "GET  /api/job/timeline?dir=",
+            "POST /api/jobs/approve",
+            "GET  /api/runs/{id}/events",
+        },
+    }));
+}
+else
+{
+    Console.WriteLine();
+    Console.WriteLine("  Lanshu AI Presenter Studio " + EnvironmentService.AppVersion);
+    Console.WriteLine("  " + url);
+    Console.WriteLine();
+    Console.WriteLine("  Keep this window open while the studio is running. Press Ctrl+C to stop.");
+    Console.WriteLine();
+}
 
 if (!noBrowser)
 {

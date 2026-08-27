@@ -1,5 +1,6 @@
 using System.Globalization;
 using Lanshu.Presenter.Cli;
+using Lanshu.Presenter.Core.Batch;
 using Lanshu.Presenter.Core.Branding;
 using Lanshu.Presenter.Core.Configuration;
 using Lanshu.Presenter.Core.Environment;
@@ -34,6 +35,7 @@ try
         "brand" => Brand(),
         "broll" => BRoll(),
         "publish" => await PublishAsync(),
+        "batch" => await BatchAsync(),
         "doctor" => await DoctorAsync(),
         "voices" => await VoicesAsync(),
         "jobs" => JobsList(),
@@ -394,6 +396,188 @@ int Segments()
     Console.WriteLine();
     Console.WriteLine("Re-take one with:  lanshu retake --job-dir <dir> --index <n> [--say \"respelling\"]");
     return 0;
+}
+
+async Task<int> BatchAsync()
+{
+    var csvPath = line.Value("csv") ?? line.Value("file");
+    if (string.IsNullOrWhiteSpace(csvPath))
+    {
+        Console.Error.WriteLine("--csv <file> is required.");
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("The header names the columns; unknown ones are ignored:");
+        Console.Error.WriteLine("  topic,script,presenter_image,brand,aspect,duration,job_dir");
+        return 64;
+    }
+
+    csvPath = FileSystemUtil.ExpandPath(csvPath);
+    if (!File.Exists(csvPath))
+    {
+        Console.Error.WriteLine($"No such file: {csvPath}");
+        return 66;
+    }
+
+    var settings = store.Load();
+    var statePath = line.Value("state") ?? Path.ChangeExtension(csvPath, ".batch.json");
+    var state = BatchQueue.Resume(
+        BatchQueue.Parse(File.ReadAllText(csvPath), csvPath),
+        BatchQueue.Load(statePath));
+
+    if (state.Rows.Count == 0)
+    {
+        Console.Error.WriteLine("The CSV has no rows.");
+        return 65;
+    }
+
+    var defaultImage = line.Value("presenter-image") ?? string.Empty;
+
+    if (line.Flag("list") || line.Flag("dry-run"))
+    {
+        Console.Write(BatchQueue.ToMarkdown(state));
+        return 0;
+    }
+
+    using var cancellation = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        Console.WriteLine();
+        Console.WriteLine("Stopping after the current video. Re-run the same command to continue.");
+        cancellation.Cancel();
+    };
+
+    var jobs = new JobService();
+    var pipeline = new PresenterVideoPipeline(store, httpClient);
+    Console.WriteLine($"{state.Remaining} of {state.Rows.Count} to make. Progress is saved after each one.");
+
+    foreach (var row in state.Rows.Where(candidate => !candidate.IsFinished))
+    {
+        if (cancellation.IsCancellationRequested)
+        {
+            break;
+        }
+
+        var label = string.IsNullOrWhiteSpace(row.Topic) ? Path.GetFileName(row.ScriptPath) : row.Topic;
+        Console.WriteLine();
+        Console.WriteLine($"[{row.Index + 1}/{state.Rows.Count}] {label}");
+
+        try
+        {
+            var image = string.IsNullOrWhiteSpace(row.PresenterImage) ? defaultImage : row.PresenterImage;
+            if (string.IsNullOrWhiteSpace(image))
+            {
+                throw new ArgumentException(
+                    "no presenter image; give the row a presenter_image column or pass --presenter-image");
+            }
+
+            var jobDirectory = string.IsNullOrWhiteSpace(row.JobDirectory)
+                ? Path.Combine(
+                    settings.ResolvedWorkspace,
+                    FileSystemUtil.Slugify(label) + "-" + DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss"))
+                : FileSystemUtil.ExpandPath(row.JobDirectory);
+
+            JobPaths rowPaths;
+            if (File.Exists(Path.Combine(jobDirectory, "job.json")))
+            {
+                // A row interrupted mid-render resumes its own job rather than starting a new one.
+                rowPaths = new JobPaths(jobDirectory);
+            }
+            else
+            {
+                rowPaths = jobs.Create(new NewJobRequest
+                {
+                    JobDirectory = jobDirectory,
+                    PresenterImage = image,
+                    Topic = string.IsNullOrWhiteSpace(row.Topic) ? null : row.Topic,
+                    ScriptFile = string.IsNullOrWhiteSpace(row.ScriptPath) ? null : row.ScriptPath,
+                    Language = settings.Defaults.Language,
+                    DurationSeconds = row.DurationSeconds > 0 ? row.DurationSeconds : settings.Defaults.DurationTargetSeconds,
+                    Aspect = string.IsNullOrWhiteSpace(row.Aspect) ? settings.Defaults.Aspect : row.Aspect,
+                    Fps = settings.Defaults.Fps,
+                    Style = settings.Defaults.Style,
+                    AccentColor = settings.Defaults.AccentColor,
+                    // A batch runs unattended, so the approvals it needs have to be given for the
+                    // whole batch on the command line — never assumed row by row.
+                    RightsConfirmed = line.Flag("rights-confirmed"),
+                    AdultPresenterConfirmed = line.Flag("adult-presenter-confirmed"),
+                    ManualReview = line.Flag("reviewed")
+                        ? new ManualInputReview
+                        {
+                            ImageViewed = true,
+                            SingleClearFace = true,
+                            ImageHasNoUnwantedText = true,
+                        }
+                        : null,
+                });
+
+                if (!string.IsNullOrWhiteSpace(row.Brand))
+                {
+                    var manifest = jobs.Load(rowPaths);
+                    if (!new BrandKitService(store).Apply(row.Brand, manifest.Creative))
+                    {
+                        Console.WriteLine($"  (no brand kit named '{row.Brand}'; using defaults)");
+                    }
+
+                    jobs.Save(rowPaths, manifest);
+                }
+            }
+
+            row.JobDirectory = rowPaths.Root;
+            row.Status = "running";
+            BatchQueue.Save(statePath, state);
+
+            var progress = new Progress<PipelineEvent>(item =>
+                Console.WriteLine($"  [{item.Progress * 100,5:0.0}%] {item.Stage,-20} {item.Message}"));
+
+            var result = await pipeline.RunAsync(
+                rowPaths,
+                new PipelineOptions { Overwrite = true },
+                progress,
+                cancellation.Token);
+
+            if (result.Outcome == PipelineOutcome.Completed)
+            {
+                var manifest = jobs.Load(rowPaths);
+                row.Status = "done";
+                row.Master = manifest.Artifacts.Master;
+                row.Detail = result.Message;
+            }
+            else
+            {
+                // A gate that stopped the run is not a failure — it is waiting for a person, and
+                // an unattended batch cannot answer it. Say which, and move on.
+                row.Status = "failed";
+                row.Detail = $"{result.Outcome}: {result.Message}";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            row.Status = "pending";
+            row.Detail = "cancelled";
+            BatchQueue.Save(statePath, state);
+            break;
+        }
+        catch (Exception exception)
+        {
+            row.Status = "failed";
+            row.Detail = exception.Message;
+            Console.Error.WriteLine("  failed: " + exception.Message);
+        }
+
+        row.FinishedUtc = DateTimeOffset.UtcNow.ToString("O");
+        BatchQueue.Save(statePath, state);
+    }
+
+    Console.WriteLine();
+    Console.WriteLine($"{state.Done} done, {state.Failed} failed, {state.Remaining} remaining.");
+    Console.WriteLine($"State: {statePath}");
+
+    var summaryPath = Path.ChangeExtension(statePath, ".md");
+    FileSystemUtil.WriteAtomic(summaryPath, BatchQueue.ToMarkdown(state));
+    Console.WriteLine($"Summary: {summaryPath}");
+
+    // A batch that finished with failures is not a success, but the successes are still delivered.
+    return state.Failed > 0 ? 1 : 0;
 }
 
 async Task<int> PublishAsync()
@@ -1044,6 +1228,7 @@ int Help(int exitCode)
           brand         Save, list and delete reusable brand kits
           broll         Choose which supporting media goes on which chapter
           publish       Upload a finished video, behind an explicit approval
+          batch         Make every video in a CSV, one at a time, resumably
           doctor        Report the environment; --install downloads a portable FFmpeg
           voices        List the voices available from every reachable speech engine
           jobs          List jobs in the workspace

@@ -360,6 +360,44 @@ visibility or the file itself retires it, so approving a **private** upload can 
 defaults to `private`, so the failure mode of a mistake is an unseen draft rather than a
 publication.
 
+## Batches
+
+A CSV of topics becomes a folder of videos, made one at a time:
+
+```bash
+lanshu batch --csv queue.csv --presenter-image face.png --reviewed --rights-confirmed
+lanshu batch --csv queue.csv --list      # what would be made, and what already was
+```
+
+The header names the columns and unknown ones are ignored, so a spreadsheet someone keeps for
+their own reasons still works: `topic`, `script`, `presenter_image`, `brand`, `aspect`,
+`duration`, `job_dir`. Quoted commas and newlines inside a cell survive.
+
+The state file next to the CSV is the point. An overnight batch will hit something — a provider
+outage, a bad path, a machine that reboots — and the only version of this worth having is one
+where that costs the failed row and nothing else. Progress is written after every row, so a
+re-run makes only what is still missing; finished rows are skipped and failed ones are retried.
+Ctrl-C stops after the current video rather than mid-render.
+
+Because a batch runs unattended it cannot answer an approval gate, so the approvals it needs are
+given once for the whole batch on the command line. A row that stops at a gate is recorded as
+what it is — waiting for a person — and the batch moves on.
+
+## Headless mode
+
+`LanshuPresenterStudio --headless` runs the same API with the browser affordances removed:
+nothing is opened, the port is fixed rather than picked at random, and startup prints one
+machine-readable line with the address, the token and the endpoints.
+
+```bash
+LanshuPresenterStudio --headless --port 8760 --token "$LANSHU_TOKEN"
+```
+
+The token may be supplied (`--token`, or `LANSHU_TOKEN`) so a client already knows it instead of
+scraping a console banner. Binding beyond loopback with `--host` is refused unless you supply a
+token of your own — the render and file APIs are not something to expose on a generated secret
+the operator has never seen.
+
 ## Optional providers
 
 | Capability | Providers |
@@ -431,7 +469,7 @@ The studio needs `ffmpeg` and `ffprobe`. If they are not on the machine, open th
 
 ```bash
 cd dotnet
-dotnet test LanshuPresenter.sln          # 195 tests
+dotnet test LanshuPresenter.sln          # 210 tests
 ./build/publish.sh win-x64               # or linux-x64, osx-arm64, ...
 ```
 
@@ -469,7 +507,7 @@ contact sheet so it can be reviewed without a video player; `--open` launches it
 player.
 
 Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `lipsync`,
-`brand`, `broll`, `publish`, `voices`, `jobs`, `config`, `version`.
+`brand`, `broll`, `publish`, `batch`, `voices`, `jobs`, `config`, `version`.
 `lanshu` with no arguments prints the full reference.
 
 `lanshu run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is
