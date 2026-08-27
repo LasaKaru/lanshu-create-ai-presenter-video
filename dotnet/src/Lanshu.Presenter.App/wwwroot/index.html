@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HelaPresenter</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <circle cx="32" cy="32" r="26"/>
+      <path d="M12 32h10l3.5-7 4.5 18 5.5-24 4 13h12.5"/>
+    </svg>
+    <div>
+      <h1>HelaPresenter</h1>
+      <p id="version">loading…</p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" data-tab="create" role="tab">Create</button>
+    <button class="tab" data-tab="jobs" role="tab">Jobs</button>
+    <button class="tab" data-tab="settings" role="tab">Settings</button>
+    <button class="tab" data-tab="environment" role="tab">Environment</button>
+    <select id="uiLanguage" class="lang" aria-label="Language">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+  </nav>
+</header>
+
+<main>
+  <!-- CREATE -->
+  <section class="panel is-active" id="tab-create">
+    <div class="grid">
+      <div class="col">
+        <div class="card">
+          <h2>1. What should the presenter say?</h2>
+          <div class="segmented" id="sourceMode">
+            <button class="seg is-active" data-mode="topic">Write it from a topic</button>
+            <button class="seg" data-mode="script">I have a script</button>
+          </div>
+
+          <div data-source="topic">
+            <label for="topic">Topic</label>
+            <input id="topic" type="text" placeholder="Explain context engineering in one minute" autocomplete="off">
+            <p class="hint" id="writerHint"></p>
+          </div>
+
+          <div data-source="script" hidden>
+            <label for="scriptText">Script</label>
+            <textarea id="scriptText" rows="10" placeholder="Paste the narration. Headings become chapters; everything else is spoken."></textarea>
+            <div class="row">
+              <label class="file-drop" for="scriptFile">
+                <input id="scriptFile" type="file" accept=".md,.txt,.markdown" hidden>
+                <span>…or choose a script file</span>
+              </label>
+              <span class="chip" id="scriptFileName" hidden></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>2. Presenter image</h2>
+          <p class="hint">One authorized image with one clear adult face. It never leaves this machine unless you configure a remote provider and approve the upload.</p>
+          <div class="row">
+            <label class="file-drop" for="presenterImage">
+              <input id="presenterImage" type="file" accept="image/*" hidden>
+              <span>Choose an image</span>
+            </label>
+            <span class="chip" id="presenterImageName" hidden></span>
+          </div>
+          <img id="presenterPreview" class="preview" alt="" hidden>
+
+          <fieldset class="checks">
+            <legend>Manual review — required before any render</legend>
+            <label><input type="checkbox" id="imageViewed"> I looked at this image myself</label>
+            <label><input type="checkbox" id="singleClearFace"> It contains one clear adult face</label>
+            <label><input type="checkbox" id="noUnwantedText"> No unwanted text, logos, or watermarks</label>
+            <label><input type="checkbox" id="rightsConfirmed"> I have the rights to use this image</label>
+            <label><input type="checkbox" id="adultConfirmed"> The person shown is an adult</label>
+          </fieldset>
+        </div>
+
+        <div class="card">
+          <h2>3. Voice</h2>
+          <div class="row">
+            <div class="field">
+              <label for="voiceProvider">Engine</label>
+              <select id="voiceProvider"><option value="">detecting…</option></select>
+            </div>
+            <div class="field grow">
+              <label for="voiceId">Voice</label>
+              <select id="voiceId"><option value="">Default</option></select>
+            </div>
+            <div class="field">
+              <label for="rate">Rate</label>
+              <input id="rate" type="number" min="0.5" max="2" step="0.02" value="1.00">
+            </div>
+          </div>
+          <div class="row">
+            <label class="file-drop" for="voiceSample">
+              <input id="voiceSample" type="file" accept="audio/*" hidden>
+              <span>Optional authorized voice sample</span>
+            </label>
+            <span class="chip" id="voiceSampleName" hidden></span>
+          </div>
+          <fieldset class="checks" id="voiceChecks" hidden>
+            <legend>Voice sample review</legend>
+            <label><input type="checkbox" id="voiceListened"> I listened to this sample</label>
+            <label><input type="checkbox" id="singleSpeaker"> It has one clear speaker</label>
+            <label><input type="checkbox" id="voiceCloneApproved"> I am authorized to clone this voice</label>
+          </fieldset>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="card">
+          <h2>4. Format</h2>
+          <div class="row">
+            <div class="field">
+              <label for="aspect">Aspect</label>
+              <select id="aspect"></select>
+            </div>
+            <div class="field">
+              <label for="fps">Frame rate</label>
+              <select id="fps">
+                <option>24</option><option>25</option><option selected>30</option>
+                <option>50</option><option>60</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="duration">Target seconds</label>
+              <input id="duration" type="number" min="5" max="1800" step="5" value="60">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field grow">
+              <label for="language">Language</label>
+              <input id="language" type="text" value="auto" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="accentColor">Accent</label>
+              <input id="accentColor" type="color" value="#F4C430">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field grow">
+              <label for="style">Visual treatment</label>
+              <input id="style" type="text" value="credible contemporary presenter" autocomplete="off">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field grow">
+              <label for="watermark">Watermark</label>
+              <input id="watermark" type="text" placeholder="@yourhandle" autocomplete="off">
+            </div>
+            <div class="field grow">
+              <label for="cta">Closing action</label>
+              <input id="cta" type="text" placeholder="Leave blank for no promo copy" autocomplete="off">
+            </div>
+          </div>
+          <div class="row toggles">
+            <label><input type="checkbox" id="captions" checked> Burn in captions</label>
+            <label><input type="checkbox" id="callouts" checked> Keyword callouts</label>
+            <label><input type="checkbox" id="reviewScript"> Review the script before it is spoken</label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>5. Supporting media <span class="tag">optional</span></h2>
+          <p class="hint">Used only where it proves or clarifies a spoken point. Assigned to body beats, never the hook or the close.</p>
+          <div class="row">
+            <label class="file-drop" for="supportingMedia">
+              <input id="supportingMedia" type="file" accept="image/*,video/*" multiple hidden>
+              <span>Add B-roll, screenshots, or charts</span>
+            </label>
+          </div>
+          <ul class="chips" id="supportingList"></ul>
+          <div class="row">
+            <label class="file-drop" for="music">
+              <input id="music" type="file" accept="audio/*" hidden>
+              <span>Optional music bed</span>
+            </label>
+            <span class="chip" id="musicName" hidden></span>
+          </div>
+        </div>
+
+        <div class="card actions">
+          <button class="primary" id="createRun">Create and render</button>
+          <button class="ghost" id="createPreview">Fast preview</button>
+          <button class="ghost" id="createOnly">Create job only</button>
+          <p class="hint" id="createHint"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- JOBS -->
+  <section class="panel" id="tab-jobs">
+    <div class="grid">
+      <div class="col narrow">
+        <div class="card">
+          <div class="card-head">
+            <h2>Jobs</h2>
+            <button class="ghost small" id="refreshJobs">Refresh</button>
+          </div>
+          <p class="hint" id="workspacePath"></p>
+          <ul class="joblist" id="jobList"></ul>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card" id="jobDetail">
+          <p class="empty">Select a job to see its state, artifacts, and run log.</p>
+        </div>
+        <div class="card" id="timelineEditor" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="panel" id="tab-settings">
+    <div class="grid">
+      <div class="col">
+        <div class="card">
+          <h2>Credentials</h2>
+          <p class="hint">Stored in a local file readable only by your user account, never in a job folder or a report. Environment variables of the same name take priority.</p>
+          <div id="secretList"></div>
+        </div>
+
+        <div class="card">
+          <h2>Script writer</h2>
+          <div class="row">
+            <div class="field grow">
+              <label for="scriptProvider">Provider</label>
+              <select id="scriptProvider">
+                <option value="auto">Auto</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
+                <option value="none">Built-in outline writer</option>
+              </select>
+            </div>
+            <div class="field grow">
+              <label for="scriptModel">Model</label>
+              <input id="scriptModel" type="text" placeholder="claude-opus-5">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Transcription</h2>
+          <p class="hint">Optional. Without it, caption timings come from the built-in aligner, which knows each segment's exact text and measured duration.</p>
+          <div class="row">
+            <div class="field grow">
+              <label for="asrProvider">Provider</label>
+              <select id="asrProvider">
+                <option value="auto">Auto</option>
+                <option value="openai">OpenAI Whisper</option>
+                <option value="whisper-cli">Local whisper.cpp</option>
+                <option value="none">Aligner only</option>
+              </select>
+            </div>
+            <div class="field grow">
+              <label for="whisperModelPath">whisper.cpp model file</label>
+              <input id="whisperModelPath" type="text" placeholder="/path/to/ggml-base.bin">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="card">
+          <h2>Presenter track</h2>
+          <div class="row">
+            <div class="field grow">
+              <label for="presenterMode">Mode</label>
+              <select id="presenterMode">
+                <option value="auto">Auto — use a provider when configured</option>
+                <option value="motion">Local motion plate only</option>
+                <option value="remote">Talking-head provider only</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint">The motion plate animates your still image. It is not a lip-synced talking head, and every job record says which one produced the track.</p>
+
+          <details class="advanced">
+            <summary>Talking-head provider (any submit-poll-download API)</summary>
+            <div class="row"><div class="field grow">
+              <label for="remoteProvider">Name for the record</label>
+              <input id="remoteProvider" type="text" placeholder="my-video-api">
+            </div>
+            <div class="field grow">
+              <label for="remoteModel">Model</label>
+              <input id="remoteModel" type="text">
+            </div></div>
+            <label for="remoteSubmit">Submit URL</label>
+            <input id="remoteSubmit" type="text" placeholder="https://api.example.com/v1/talking-head">
+            <label for="remoteStatus">Status URL template</label>
+            <input id="remoteStatus" type="text" placeholder="https://api.example.com/v1/tasks/{{TASK_ID}}">
+            <div class="row">
+              <div class="field grow">
+                <label for="remoteSecret">Credential name</label>
+                <input id="remoteSecret" type="text" value="PRESENTER_API_KEY">
+              </div>
+              <div class="field">
+                <label for="remoteAuthHeader">Auth header</label>
+                <input id="remoteAuthHeader" type="text" value="Authorization">
+              </div>
+              <div class="field">
+                <label for="remoteAuthScheme">Scheme</label>
+                <input id="remoteAuthScheme" type="text" value="Bearer">
+              </div>
+            </div>
+            <label for="remoteTemplate">Request body template</label>
+            <textarea id="remoteTemplate" rows="8" spellcheck="false"></textarea>
+            <p class="hint">Placeholders: <code>{{IMAGE_DATA_URI}}</code> <code>{{AUDIO_DATA_URI}}</code> <code>{{IMAGE_BASE64}}</code> <code>{{AUDIO_BASE64}}</code> <code>{{PROMPT}}</code> <code>{{NEGATIVE_PROMPT}}</code> <code>{{WIDTH}}</code> <code>{{HEIGHT}}</code> <code>{{FPS}}</code> <code>{{DURATION}}</code> <code>{{MODEL}}</code></p>
+            <div class="row">
+              <div class="field grow">
+                <label for="remoteTaskPath">Task id path</label>
+                <input id="remoteTaskPath" type="text" value="id">
+              </div>
+              <div class="field grow">
+                <label for="remoteStatusPath">Status path</label>
+                <input id="remoteStatusPath" type="text" value="status">
+              </div>
+              <div class="field grow">
+                <label for="remoteResultPath">Result URL path</label>
+                <input id="remoteResultPath" type="text" value="output.video_url">
+              </div>
+            </div>
+            <div class="row">
+              <div class="field grow">
+                <label for="remotePrice">Known price per second</label>
+                <input id="remotePrice" type="number" step="0.0001" placeholder="leave blank if unknown">
+              </div>
+              <div class="field grow">
+                <label for="remotePriceDate">Price evidence date</label>
+                <input id="remotePriceDate" type="date">
+              </div>
+            </div>
+            <label class="inline"><input type="checkbox" id="remoteEnabled"> Enable this provider</label>
+          </details>
+        </div>
+
+        <div class="card">
+          <h2>Motion plate</h2>
+          <div class="row">
+            <div class="field grow">
+              <label for="motionZoom">Zoom over the take (%)</label>
+              <input id="motionZoom" type="number" min="0" max="25" step="1" value="6">
+            </div>
+            <div class="field grow">
+              <label for="motionSway">Sway (px)</label>
+              <input id="motionSway" type="number" min="0" max="60" step="1" value="10">
+            </div>
+            <div class="field grow">
+              <label for="motionBackground">Background</label>
+              <select id="motionBackground">
+                <option value="blurred">Auto / blurred backdrop</option>
+                <option value="cover">Always fill the frame</option>
+                <option value="contain">Always contain the image</option>
+              </select>
+            </div>
+          </div>
+          <div class="row toggles">
+            <label><input type="checkbox" id="motionGrade" checked> Light grade</label>
+            <label><input type="checkbox" id="motionVignette" checked> Vignette</label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Rendering</h2>
+          <div class="row">
+            <div class="field grow">
+              <label for="renderEncoder">Video encoder</label>
+              <select id="renderEncoder">
+                <option value="auto">Auto — hardware when it works</option>
+                <option value="software">Software (libx264)</option>
+                <option value="nvenc">NVIDIA NVENC</option>
+                <option value="qsv">Intel Quick Sync</option>
+                <option value="videotoolbox">Apple VideoToolbox</option>
+                <option value="amf">AMD AMF</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="previewHeight">Preview short edge</label>
+              <input id="previewHeight" type="number" min="160" max="1080" step="80" value="640">
+            </div>
+          </div>
+          <p class="hint">Hardware encoders are probed before use and fall back to software automatically if they fail mid-render.</p>
+          <label class="inline"><input type="checkbox" id="reviewBeforeAudio"> Always review the script before narration is synthesized</label>
+        </div>
+
+        <div class="card">
+          <h2>Paths</h2>
+          <label for="workspace">Workspace</label>
+          <input id="workspace" type="text">
+          <label for="ffmpegPath">FFmpeg</label>
+          <input id="ffmpegPath" type="text" placeholder="leave blank to auto-detect">
+          <label for="captionFont">Caption font</label>
+          <input id="captionFont" type="text" placeholder="Segoe UI / Microsoft YaHei">
+        </div>
+
+        <div class="card actions">
+          <button class="primary" id="saveSettings">Save settings</button>
+          <p class="hint" id="settingsHint"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENVIRONMENT -->
+  <section class="panel" id="tab-environment">
+    <div class="card">
+      <div class="card-head">
+        <h2>Environment</h2>
+        <div>
+          <button class="ghost small" id="refreshEnv">Re-check</button>
+          <button class="primary small" id="installFfmpeg">Install FFmpeg</button>
+        </div>
+      </div>
+      <div id="envBody"><p class="empty">Checking…</p></div>
+    </div>
+  </section>
+</main>
+
+<footer class="sitefoot">
+  <svg class="foot-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+    <circle cx="32" cy="32" r="26"/>
+    <path d="M12 32h10l3.5-7 4.5 18 5.5-24 4 13h12.5"/>
+  </svg>
+  <span>done by HelaO2 PVT LTD</span>
+</footer>
+
+<div class="runbar" id="runbar" hidden>
+  <div class="runbar-head">
+    <strong id="runStage">Starting…</strong>
+    <span id="runMessage"></span>
+    <button class="ghost small" id="cancelRun">Cancel</button>
+    <button class="ghost small" id="closeRun">Close</button>
+  </div>
+  <div class="progress"><div class="progress-fill" id="runFill"></div></div>
+  <pre class="runlog" id="runLog"></pre>
+  <div id="runResult"></div>
+  <div id="scriptEditor" hidden></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

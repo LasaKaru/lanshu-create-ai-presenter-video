@@ -1,0 +1,104 @@
+name: Release Studio
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish the release under'
+        required: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: dotnet
+
+jobs:
+  release:
+    name: Publish downloads
+    runs-on: ubuntu-latest
+    env:
+      # Evaluated once at job level, because a step's own env is not visible to its `if`.
+      HAS_SIGNING_CERT: ${{ secrets.WINDOWS_CERT_BASE64 != '' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test
+        run: dotnet test LanshuPresenter.sln -c Release
+
+      - name: Publish every target
+        run: |
+          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
+            ./build/publish.sh "$rid" "${{ github.workspace }}/out/$rid"
+          done
+
+      # Signing is what removes the SmartScreen warning, and it needs a certificate this
+      # repository deliberately does not contain. When the secrets are present the Windows build
+      # is signed; when they are absent the release still ships, unsigned and saying so, rather
+      # than failing for want of something only a purchase can provide.
+      - name: Sign the Windows build
+        id: sign
+        if: env.HAS_SIGNING_CERT == 'true'
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y osslsigncode
+          printf '%s' "$WINDOWS_CERT_BASE64" | base64 -d > /tmp/cert.pfx
+          for exe in "${{ github.workspace }}"/out/win-x64/*.exe; do
+            echo "Signing $(basename "$exe")"
+            osslsigncode sign \
+              -pkcs12 /tmp/cert.pfx -pass "$WINDOWS_CERT_PASSWORD" \
+              -n "HelaPresenter" \
+              -i "https://github.com/LasaKaru/lanshu-create-ai-presenter-video" \
+              -t "http://timestamp.digicert.com" \
+              -in "$exe" -out "$exe.signed"
+            mv "$exe.signed" "$exe"
+          done
+          # The certificate must not outlive the step that needed it.
+          shred -u /tmp/cert.pfx
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Note that the build is unsigned
+        if: env.HAS_SIGNING_CERT != 'true'
+        run: |
+          echo "No signing certificate is configured, so the Windows build is unsigned and"
+          echo "SmartScreen will warn on first run. Set the WINDOWS_CERT_BASE64 and"
+          echo "WINDOWS_CERT_PASSWORD repository secrets to sign it."
+
+      - name: Package archives
+        working-directory: ${{ github.workspace }}/out
+        run: |
+          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
+            (cd "$rid" && zip -r "../helapresenter-$rid.zip" .)
+          done
+          sha256sum ./*.zip > SHA256SUMS.txt
+          ls -la
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: HelaPresenter ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          append_body: true
+          body: |
+            ${{ steps.sign.outputs.signed == 'true'
+              && 'The Windows build is code-signed.'
+              || 'The Windows build is **not** code-signed, so SmartScreen will warn on first run. Choose More info, then Run anyway — or build it yourself from source.' }}
+
+            Verify a download against `SHA256SUMS.txt`.
+          files: |
+            ${{ github.workspace }}/out/*.zip
+            ${{ github.workspace }}/out/SHA256SUMS.txt

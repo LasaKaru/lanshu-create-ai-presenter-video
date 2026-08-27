@@ -1,0 +1,70 @@
+name: Build Studio
+
+on:
+  push:
+    paths:
+      - 'dotnet/**'
+      - '.github/workflows/dotnet.yml'
+  pull_request:
+    paths:
+      - 'dotnet/**'
+      - '.github/workflows/dotnet.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: dotnet
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore LanshuPresenter.sln
+
+      - name: Build
+        run: dotnet build LanshuPresenter.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test LanshuPresenter.sln -c Release --no-build --verbosity normal
+
+  package:
+    name: Package ${{ matrix.rid }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, linux-x64]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish single-file build
+        run: ./build/publish.sh ${{ matrix.rid }} "${{ github.workspace }}/out/${{ matrix.rid }}"
+
+      # Every run leaves a downloadable build on the workflow summary page.
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: helapresenter-${{ matrix.rid }}
+          path: out/${{ matrix.rid }}
+          if-no-files-found: error
+          retention-days: 30

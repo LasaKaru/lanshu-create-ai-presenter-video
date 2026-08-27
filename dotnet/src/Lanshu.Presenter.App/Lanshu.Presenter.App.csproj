@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Lanshu.Presenter.App</RootNamespace>
+    <AssemblyName>HelaPresenter</AssemblyName>
+    <RollForward>Major</RollForward>
+    <!-- The brand mark, so the download is recognisable in Explorer and the taskbar. -->
+    <ApplicationIcon>../../build/appicon.ico</ApplicationIcon>
+    <!-- The UI ships inside the executable so a single downloaded file is enough to run. -->
+    <EnableDefaultContentItems>false</EnableDefaultContentItems>
+    <!-- One downloadable file: the runtime, the pipeline and the UI all travel inside the exe. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Reflection-based JSON binding is used throughout the manifest, so trimming stays off. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>embedded</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AssemblyTitle>HelaPresenter</AssemblyTitle>
+    <!-- Not hosted under IIS; the published folder should contain only the executable. -->
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lanshu.Presenter.Core\Lanshu.Presenter.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\**\*" />
+  </ItemGroup>
+
+</Project>

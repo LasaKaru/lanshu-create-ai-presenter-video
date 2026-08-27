@@ -3,6 +3,7 @@
 ![Codex Skill](https://img.shields.io/badge/Codex-Skill-111827?logo=openai&logoColor=white)
 ![Provider Neutral](https://img.shields.io/badge/Provider-Neutral-0EA5E9)
 [![Validate Skill](https://github.com/cclank/lanshu-create-ai-presenter-video/actions/workflows/validate.yml/badge.svg)](https://github.com/cclank/lanshu-create-ai-presenter-video/actions/workflows/validate.yml)
+[![Build Studio](https://github.com/LasaKaru/lanshu-create-ai-presenter-video/actions/workflows/dotnet.yml/badge.svg)](https://github.com/LasaKaru/lanshu-create-ai-presenter-video/actions/workflows/dotnet.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-F4C430.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FFmpeg Required](https://img.shields.io/badge/FFmpeg-Required-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
@@ -89,6 +90,33 @@ python3 "$SKILL_DIR/scripts/init_job.py" \
 python3 "$SKILL_DIR/scripts/preflight.py" ~/Videos/my-presenter-video/job.json
 ```
 
+## Windows 桌面应用（.NET）
+
+除了 Codex Skill，本仓库还提供一个同样工作流的 .NET 桌面应用：**HelaPresenter**。
+它是单个自包含可执行文件，不需要安装 .NET 运行时，也没有安装程序。
+
+```
+HelaPresenter.exe   图形界面（在浏览器中打开本地界面）
+hela.exe            同一套流程的命令行版本
+```
+
+- 下载：[Releases](https://github.com/LasaKaru/lanshu-create-ai-presenter-video/releases)，
+  或在 [Actions](https://github.com/LasaKaru/lanshu-create-ai-presenter-video/actions)
+  的构建产物中获取每次提交的版本。
+- 没有任何 API Key 也能完整出片：系统语音朗读、内置对齐器生成字幕时间、
+  由静态人物图渲染动态画面。人物轨道是否为真正的口型同步，会如实记录在任务档案中。
+- 配置 Anthropic、OpenAI、ElevenLabs、Azure 或任意数字人接口后，可获得完整文案撰写、
+  高质量配音、实测词级时间轴与真实口型同步。
+- 完整说明见 [`dotnet/README.md`](dotnet/README.md)。
+
+从源码构建：
+
+```bash
+cd dotnet
+dotnet test LanshuPresenter.sln
+./build/publish.sh win-x64
+```
+
 ## 运行环境
 
 - Codex 或兼容本地 Skill 的 Agent 环境。
@@ -146,3 +174,7 @@ python3 "$SKILL_DIR/scripts/preflight.py" ~/Videos/my-presenter-video/job.json
 ## 贡献
 
 欢迎通过 Issue 提交使用反馈，也欢迎用 Pull Request 改进工作流、兼容性和质量检查。
+
+---
+
+HelaPresenter — done by HelaO2 PVT LTD.
