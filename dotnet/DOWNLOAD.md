@@ -126,6 +126,32 @@ TIGHTER, CLEANER NARRATION
   filler words are dropped from the script before it is ever spoken, so the
   captions never show a word the voice does not say.
 
+OTHER LANGUAGES
+
+  Two different things, and it is worth knowing which one you want.
+
+  Translated subtitles are cheap: the video still speaks the original
+  language, and you get a subtitle file per language sitting beside it. The
+  timings come from the one recording that was made, so only the words
+  change.
+
+  A full dub re-speaks the whole script in the new language and renders a
+  separate video for it. Everything is re-timed, because the new words take
+  a different amount of time to say - a 31-second English video came out at
+  38 seconds in Spanish.
+
+PUBLISHING
+
+  The studio can upload a finished video straight to a destination you
+  configure. It always shows you exactly what would be sent first - the
+  destination, the title, the visibility and the file - and refuses until
+  you approve that specific upload.
+
+  Approving is tied to the plan you read, not to the job. Change the title,
+  the destination, the visibility or the video, and the approval is gone, so
+  approving a private upload can never quietly turn into a public one. New
+  uploads default to private.
+
 WITH API KEYS (Settings tab)
 
   Anthropic or OpenAI   full script drafting from a topic

@@ -8,6 +8,7 @@ using Lanshu.Presenter.Core.Media;
 using Lanshu.Presenter.Core.Models;
 using Lanshu.Presenter.Core.Pipeline;
 using Lanshu.Presenter.Core.Preflight;
+using Lanshu.Presenter.Core.Publishing;
 using Lanshu.Presenter.Core.Presenter;
 using Lanshu.Presenter.Core.Util;
 using Lanshu.Presenter.Core.Voice;
@@ -32,6 +33,7 @@ try
         "lipsync" => await LipSyncAsync(),
         "brand" => Brand(),
         "broll" => BRoll(),
+        "publish" => await PublishAsync(),
         "doctor" => await DoctorAsync(),
         "voices" => await VoicesAsync(),
         "jobs" => JobsList(),
@@ -112,7 +114,9 @@ async Task<int> InitAsync()
         || line.Has("intro")
         || line.Has("outro")
         || line.Flag("no-trim-silence")
-        || line.Flag("keep-fillers"))
+        || line.Flag("keep-fillers")
+        || line.Has("subtitle-language")
+        || line.Has("dub"))
     {
         var jobs = new JobService();
         var manifest = jobs.Load(paths);
@@ -159,6 +163,18 @@ async Task<int> InitAsync()
         if (line.Flag("keep-fillers"))
         {
             manifest.Creative.TrimFillers = false;
+        }
+
+        // Subtitles are a sidecar off the one recording; a dub is a whole second run per
+        // language, so they are separate flags rather than one "languages" list.
+        if (line.Has("subtitle-language"))
+        {
+            manifest.Creative.SubtitleLanguages = line.Values("subtitle-language").ToList();
+        }
+
+        if (line.Has("dub"))
+        {
+            manifest.Creative.DubLanguages = line.Values("dub").ToList();
         }
 
         jobs.Save(paths, manifest);
@@ -378,6 +394,92 @@ int Segments()
     Console.WriteLine();
     Console.WriteLine("Re-take one with:  lanshu retake --job-dir <dir> --index <n> [--say \"respelling\"]");
     return 0;
+}
+
+async Task<int> PublishAsync()
+{
+    var paths = ResolvePaths();
+    var jobs = new JobService();
+    var job = jobs.Load(paths);
+    var settings = store.Load();
+
+    using var http = new HttpClient();
+    var service = new PublishService(settings, store, http, Console.WriteLine);
+
+    if (!settings.Publish.Enabled || string.IsNullOrWhiteSpace(settings.Publish.UploadUrl))
+    {
+        Console.Error.WriteLine("No publish destination is configured.");
+        Console.Error.WriteLine("Set publish.upload_url, publish.secret_key and publish.enabled in settings.json.");
+        return 78;
+    }
+
+    var visibility = line.Value("visibility");
+    var plan = service.BuildPlan(paths, job, visibility);
+    var fingerprint = PublishService.Fingerprint(plan);
+
+    // Always show the whole plan. An upload cannot be taken back, so the operator reads what is
+    // about to leave the machine every time — not only the first time.
+    Console.WriteLine("This is what would be uploaded:");
+    Console.WriteLine();
+    foreach (var detail in plan.Describe())
+    {
+        Console.WriteLine("  " + detail);
+    }
+
+    Console.WriteLine();
+    Console.WriteLine($"  approval id : {fingerprint}");
+    Console.WriteLine();
+
+    if (line.Flag("dry-run"))
+    {
+        Console.WriteLine("Dry run: nothing was uploaded.");
+        return 0;
+    }
+
+    if (line.Flag("approve"))
+    {
+        job.Plan.PublishApprovedFingerprint = fingerprint;
+        jobs.Save(paths, job);
+        Console.WriteLine("Approved. Run 'lanshu publish' again to upload exactly this.");
+        return 0;
+    }
+
+    if (!string.Equals(job.Plan.PublishApprovedFingerprint, fingerprint, StringComparison.Ordinal))
+    {
+        Console.Error.WriteLine("This upload is not approved.");
+        Console.Error.WriteLine("Read the plan above, then approve exactly it with:");
+        Console.Error.WriteLine("  lanshu publish --approve"
+                                + (string.IsNullOrWhiteSpace(visibility) ? string.Empty : $" --visibility {visibility}"));
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Changing the title, destination, visibility or the file retires an approval,");
+        Console.Error.WriteLine("so an old approval can never carry over to a different upload.");
+        return 3;
+    }
+
+    var result = await service.PublishAsync(paths, job, dryRun: false, visibility);
+
+    switch (result.Outcome)
+    {
+        case PublishOutcome.Published:
+            // One approval, one upload: spend it so a repeat needs a fresh look.
+            job.Plan.PublishApprovedFingerprint = string.Empty;
+            jobs.Save(paths, job);
+            Console.WriteLine(result.Message);
+            if (!string.IsNullOrWhiteSpace(result.RemoteUrl))
+            {
+                Console.WriteLine("  " + result.RemoteUrl);
+            }
+
+            return 0;
+
+        case PublishOutcome.NotConfigured:
+            Console.Error.WriteLine(result.Message);
+            return 78;
+
+        default:
+            Console.Error.WriteLine("Upload failed: " + result.Message);
+            return 2;
+    }
 }
 
 int Brand()
@@ -941,6 +1043,7 @@ int Help(int exitCode)
           lipsync       Configure and smoke-test a locally installed lip-sync tool
           brand         Save, list and delete reusable brand kits
           broll         Choose which supporting media goes on which chapter
+          publish       Upload a finished video, behind an explicit approval
           doctor        Report the environment; --install downloads a portable FFmpeg
           voices        List the voices available from every reachable speech engine
           jobs          List jobs in the workspace

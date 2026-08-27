@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Lanshu.Presenter.Core.Content;
 using Lanshu.Presenter.Core.Jobs;
+using Lanshu.Presenter.Core.Localization;
 using Lanshu.Presenter.Core.Media;
 using Lanshu.Presenter.Core.Models;
 using Lanshu.Presenter.Core.Util;
@@ -60,7 +61,9 @@ public sealed class NarrationService
 
         var voiceId = string.IsNullOrWhiteSpace(job.Voice.VoiceId) ? string.Empty : job.Voice.VoiceId;
         var rate = job.Voice.Rate <= 0 ? 1.0 : job.Voice.Rate;
-        var language = script.Language;
+        // Engines want a code, not a name someone typed. "Spanish" makes espeak-ng exit with
+        // "the specified voice does not exist", which loses the whole take rather than degrading.
+        var language = LanguageCodes.ToCode(script.Language);
 
         // Fillers are cut from the wording before it is segmented, so the captions and keyword
         // anchors built from these same segments never contain a word the voice does not say.

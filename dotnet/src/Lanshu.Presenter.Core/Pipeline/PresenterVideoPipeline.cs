@@ -6,6 +6,7 @@ using Lanshu.Presenter.Core.Content;
 using Lanshu.Presenter.Core.Delivery;
 using Lanshu.Presenter.Core.Environment;
 using Lanshu.Presenter.Core.Jobs;
+using Lanshu.Presenter.Core.Localization;
 using Lanshu.Presenter.Core.Media;
 using Lanshu.Presenter.Core.Models;
 using Lanshu.Presenter.Core.Preflight;
@@ -530,6 +531,73 @@ public sealed class PresenterVideoPipeline
 
             job.Artifacts.AlternateMasters = alternates.Select(paths.Relative).ToList();
 
+            // Localization. Subtitles are cheap because the timings belong to the one recording
+            // that was made; a dub is a full second run per language and is treated as such.
+            if (job.Creative.SubtitleLanguages.Count > 0 || job.Creative.DubLanguages.Count > 0)
+            {
+                var translator = new TranslatorRouter(settings, _store, _httpClient).Resolve();
+                if (translator is null)
+                {
+                    warnings.Add(
+                        "no translation provider is configured, so no translated subtitles or dubs were produced; "
+                        + "set an Anthropic or OpenAI key in Settings");
+                }
+                else
+                {
+                    if (job.Creative.SubtitleLanguages.Count > 0)
+                    {
+                        Report("verified", "Translating subtitles", 0.96);
+                        var subtitles = await new SubtitleTranslationService(translator, Log)
+                            .RunAsync(
+                                paths, captionPlan, script.Language,
+                                job.Creative.SubtitleLanguages, stem, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        job.Artifacts.TranslatedSubtitles = subtitles.Files
+                            .Select(file => paths.Relative(file.Path))
+                            .ToList();
+                        warnings.AddRange(subtitles.Warnings);
+
+                        if (subtitles.Files.Count > 0)
+                        {
+                            Log($"Wrote {subtitles.Files.Count} translated subtitle file(s): "
+                                + string.Join(", ", subtitles.Files.Select(file => file.Language)));
+                        }
+                    }
+
+                    var dubs = new List<string>();
+                    foreach (var language in job.Creative.DubLanguages
+                                 .Select(entry => entry.Trim())
+                                 .Where(entry => entry.Length > 0)
+                                 .Distinct(StringComparer.OrdinalIgnoreCase))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        try
+                        {
+                            var dub = await RenderDubAsync(
+                                    paths, job, script, translator, settings, ffmpeg,
+                                    language, stem, Report, Log, cancellationToken)
+                                .ConfigureAwait(false);
+
+                            dubs.Add(dub.MasterPath);
+                            Log($"Dubbed into {language}: {dub.DurationSeconds:0.00}s "
+                                + $"via {dub.VoiceProvider}, presenter {dub.PresenterProvider}");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception exception)
+                        {
+                            // One language failing must not cost the others or the delivery.
+                            warnings.Add($"the {language} dub failed: {exception.Message}");
+                        }
+                    }
+
+                    job.Artifacts.DubbedMasters = dubs.Select(paths.Relative).ToList();
+                }
+            }
+
             if (job.Creative.PublishingKit)
             {
                 Report("verified", "Building thumbnails and chapter markers", 0.97);
@@ -937,6 +1005,169 @@ public sealed class PresenterVideoPipeline
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Produces one full dub: the script translated, spoken again in that language, re-timed
+    /// against the new recording, and rendered and delivered as its own version.
+    ///
+    /// A dub is not a re-cut of the original. Every duration changes when the words change, so
+    /// the chapters, captions, punch-ins, shot boundaries and the presenter plate itself are all
+    /// rebuilt against the new narration rather than stretched to fit the old one.
+    ///
+    /// The presenter track is deliberately re-rendered as a local motion plate even when the
+    /// original came from a paid provider. Generating a second talking head would be a second
+    /// paid run, and quietly spending that on the operator's behalf is exactly what the cost gate
+    /// exists to prevent — so the dub says which track it actually has instead.
+    /// </summary>
+    private async Task<DubResult> RenderDubAsync(
+        JobPaths paths,
+        JobManifest job,
+        ScriptDocument script,
+        ITranslator translator,
+        AppSettings settings,
+        FfmpegService ffmpeg,
+        string language,
+        string stem,
+        Action<string, string, double> report,
+        Action<string> log,
+        CancellationToken cancellationToken)
+    {
+        var slug = SubtitleTranslationService.Slug(language);
+        report("verified", $"Dubbing into {language}", 0.96);
+
+        // 1. Translate every beat's narration, one line per beat so nothing merges or vanishes.
+        var sourceLines = script.Beats.Select(beat => beat.Narration).ToList();
+        var translatedLines = await translator
+            .TranslateAsync(sourceLines, language, script.Language, cancellationToken)
+            .ConfigureAwait(false);
+
+        var dubScript = script.Clone();
+        dubScript.Language = language;
+        for (var index = 0; index < dubScript.Beats.Count; index++)
+        {
+            dubScript.Beats[index].Narration = translatedLines[index];
+        }
+
+        // 2. Speak it. A dub gets its own job view so narration reuse cannot hand it the
+        //    original language's takes, which are cached by segment index.
+        var dubPaths = paths.ForVariant(slug);
+        var dubJob = job.CloneForDub(language);
+
+        var router = new SpeechRouter(settings, _store, _httpClient);
+        var synthesizer = await router.ResolveAsync(cancellationToken).ConfigureAwait(false);
+        var narration = await new NarrationService(ffmpeg, log)
+            .BuildAsync(dubPaths, dubJob, dubScript, synthesizer, cancellationToken)
+            .ConfigureAwait(false);
+
+        log($"{language} narration is {narration.DurationSeconds:0.00}s against the original's {job.Plan.Chapters.Sum(chapter => chapter.DurationSeconds):0.00}s");
+
+        // 3. Re-time. The words are different, so the timings have to be derived again.
+        var (_, captionPlan) = await BuildCaptionsAsync(
+                dubPaths, dubJob, settings, dubScript, narration, ffmpeg, report, cancellationToken)
+            .ConfigureAwait(false);
+
+        // 4. A new duration needs a new plate; the still image is the only thing carried over.
+        var chapters = TimelineBuilder.BuildChapters(dubScript, narration);
+        dubJob.Plan.Chapters = chapters;
+
+        var envelope = settings.Presenter.Motion.AudioReactive
+            ? await AudioEnvelope.MeasureAsync(
+                    ffmpeg,
+                    narration.AudioPath,
+                    job.Creative.Fps,
+                    (int)Math.Round(narration.DurationSeconds * job.Creative.Fps),
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : null;
+
+        var platePath = Path.Combine(dubPaths.Renders, $"presenter-{slug}.mp4");
+        var plate = await new MotionPlateGenerator(ffmpeg, settings.Presenter.Motion, log)
+            .GenerateAsync(
+                new PresenterRequest
+                {
+                    ImagePath = job.Input.PresenterImage,
+                    AudioPath = narration.AudioPath,
+                    OutputPath = platePath,
+                    DurationSeconds = narration.DurationSeconds,
+                    Width = job.Creative.Width,
+                    Height = job.Creative.Height,
+                    Fps = job.Creative.Fps,
+                    Prompt = PresenterPromptBuilder.Build(dubJob, actionfulOpening: true),
+                    NegativePrompt = PresenterPromptBuilder.NegativePrompt(),
+                    Envelope = envelope,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        // 5. Captions for this language, then the timeline and the render.
+        var assPath = Path.Combine(dubPaths.Captions, $"captions-{slug}.ass");
+        FileSystemUtil.WriteAtomic(assPath, AssWriter.Build(captionPlan, new CaptionStyleOptions
+        {
+            Width = job.Creative.Width,
+            Height = job.Creative.Height,
+            FontName = string.IsNullOrWhiteSpace(job.Creative.CaptionFont)
+                ? settings.CaptionFont
+                : job.Creative.CaptionFont,
+            AccentColor = job.Creative.AccentColor,
+            Watermark = job.Creative.Watermark,
+            CaptionsEnabled = job.Creative.CaptionsEnabled,
+            CalloutsEnabled = job.Creative.KeywordCalloutsEnabled,
+            CaptionStyle = job.Creative.CaptionStyle,
+            Cjk = TextUtil.IsCjk(dubScript.Narration),
+        }));
+
+        var timeline = await new TimelineBuilder(ffmpeg)
+            .BuildAsync(
+                dubPaths, dubJob, dubScript, plate, narration,
+                job.Creative.CaptionsEnabled || job.Creative.KeywordCalloutsEnabled ? assPath : string.Empty,
+                cancellationToken,
+                captionPlan.Callouts,
+                job.Creative.PunchInsEnabled,
+                job.Creative.MultiShotEnabled)
+            .ConfigureAwait(false);
+
+        timeline.FontsDirectory = string.IsNullOrWhiteSpace(settings.FontsDirectory)
+            ? string.Empty
+            : FileSystemUtil.ExpandPath(settings.FontsDirectory);
+
+        var renderPath = Path.Combine(dubPaths.Renders, $"rendered-{slug}.mkv");
+        FileSystemUtil.TryDelete(renderPath);
+        await new FfmpegCompositor(ffmpeg, log)
+            .RenderAsync(timeline, renderPath, cancellationToken)
+            .ConfigureAwait(false);
+
+        var dubStem = $"{stem}-{slug}";
+        var delivery = await new FinalizeDeliveryService(ffmpeg, log)
+            .RunAsync(
+                renderPath,
+                paths.Outputs,
+                dubStem,
+                new FinalizeDeliveryService.Options
+                {
+                    ProgramLufs = job.Voice.ProgramLufs,
+                    Overwrite = true,
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        // The sidecar belongs with the deliverable, in the dubbed language.
+        var srtPath = Path.Combine(paths.Outputs, $"{dubStem}.srt");
+        FileSystemUtil.WriteAtomic(srtPath, SrtWriter.Build(captionPlan));
+
+        return new DubResult(
+            language,
+            Path.Combine(paths.Outputs, delivery.Master),
+            narration.DurationSeconds,
+            narration.Provider,
+            plate.Provider);
+    }
+
+    private sealed record DubResult(
+        string Language,
+        string MasterPath,
+        double DurationSeconds,
+        string VoiceProvider,
+        string PresenterProvider);
 
     /// <summary>
     /// Renders and finalizes one extra aspect ratio. The narration, presenter plate and caption

@@ -312,6 +312,54 @@ job. The encoder that actually ran is recorded on the job under `capabilities.en
 
 The Environment tab reports the resolved encoder and every hardware encoder that passed its probe.
 
+## Translated subtitles
+
+`--subtitle-language Spanish --subtitle-language French` writes a translated `.srt` beside the
+delivered video for each language. Only the words change: the timings belong to the one recording
+that was actually made, which is exactly why this is cheap — and exactly why it is **not** a dub.
+The video still speaks the original language, and the job record says so.
+
+The line count is the contract. A translation that merges two cues into one or splits one into two
+silently destroys the alignment, so the translator is asked for one output line per input line and
+the reply is checked. A mismatched reply fails that language rather than being papered over, and
+the other languages and the delivery carry on.
+
+## Full dubs
+
+`--dub Spanish` produces a complete second version: the script translated, spoken again in that
+language, re-timed against the new recording, and rendered and delivered on its own.
+
+A dub is not a re-cut. Every duration changes when the words change, so the chapters, captions,
+punch-ins, shot boundaries and the presenter plate are all rebuilt against the new narration
+rather than stretched to fit the old one — a verified Spanish dub of a 31.2s English original came
+out at 37.8s.
+
+The presenter track is deliberately re-rendered as a local motion plate even when the original
+came from a paid provider: generating a second talking head is a second paid run, and spending
+that without asking is what the cost gate exists to prevent. The dub records which track it
+actually has.
+
+## Publishing
+
+`lanshu publish` uploads a finished video to whatever destination is configured. It is
+provider-neutral in the same way the talking-head route is — endpoint, auth header, metadata
+template and the JSON path to read the id back out.
+
+Publishing is the one action here that cannot be undone from this machine, so it follows the same
+shape as the paid-generation gate:
+
+```bash
+lanshu publish              # prints exactly what would be uploaded, and refuses
+lanshu publish --approve    # approves that specific plan
+lanshu publish              # uploads it
+```
+
+The approval is a fingerprint of the plan, not a boolean. Changing the title, the destination, the
+visibility or the file itself retires it, so approving a **private** upload can never authorize a
+**public** one. An approval is spent by one upload; a second needs a fresh look. Visibility
+defaults to `private`, so the failure mode of a mistake is an unseen draft rather than a
+publication.
+
 ## Optional providers
 
 | Capability | Providers |
@@ -383,7 +431,7 @@ The studio needs `ffmpeg` and `ffprobe`. If they are not on the machine, open th
 
 ```bash
 cd dotnet
-dotnet test LanshuPresenter.sln          # 157 tests
+dotnet test LanshuPresenter.sln          # 195 tests
 ./build/publish.sh win-x64               # or linux-x64, osx-arm64, ...
 ```
 
@@ -421,7 +469,7 @@ contact sheet so it can be reviewed without a video player; `--open` launches it
 player.
 
 Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `lipsync`,
-`brand`, `broll`, `voices`, `jobs`, `config`, `version`.
+`brand`, `broll`, `publish`, `voices`, `jobs`, `config`, `version`.
 `lanshu` with no arguments prints the full reference.
 
 `lanshu run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is

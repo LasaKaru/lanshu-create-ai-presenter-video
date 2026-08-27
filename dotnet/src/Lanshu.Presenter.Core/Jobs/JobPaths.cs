@@ -1,3 +1,5 @@
+using Lanshu.Presenter.Core.Util;
+
 namespace Lanshu.Presenter.Core.Jobs;
 
 /// <summary>
@@ -11,6 +13,17 @@ public sealed class JobPaths
     }
 
     public string Root { get; }
+
+    /// <summary>
+    /// A private working tree for one variant of this job, under the job directory.
+    ///
+    /// A dub re-speaks every segment, and the narration cache is keyed by segment index — so a
+    /// dub sharing the original's audio folders would either be handed English takes as "already
+    /// spoken" or would overwrite them. Its own subtree keeps both intact, while deliverables
+    /// still land in the one Outputs folder a publisher looks in.
+    /// </summary>
+    public JobPaths ForVariant(string slug) =>
+        new(Path.Combine(Root, "variants", FileSystemUtil.Slugify(slug)));
 
     public string ManifestFile => Path.Combine(Root, "job.json");
 

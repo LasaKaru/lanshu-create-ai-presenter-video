@@ -51,6 +51,9 @@ public sealed class AppSettings
     [JsonPropertyName("brand_kits")]
     public List<Branding.BrandKit> BrandKits { get; set; } = new();
 
+    [JsonPropertyName("publish")]
+    public PublishSettings Publish { get; set; } = new();
+
     [JsonIgnore]
     public string ResolvedWorkspace =>
         string.IsNullOrWhiteSpace(Workspace) ? ToolLocator.DefaultWorkspace : FileSystemUtil.ExpandPath(Workspace);
@@ -371,4 +374,63 @@ public sealed class CreativeDefaults
         AccentColor = AccentColor,
         Style = Style,
     };
+}
+
+
+/// <summary>
+/// Where a finished video can be uploaded. Deliberately provider-neutral in the same way the
+/// talking-head route is: the operator supplies the endpoint, the auth header and a request
+/// template, so a platform this app has never heard of works without a code change — and no
+/// vendor is baked in as the assumed destination.
+/// </summary>
+public sealed class PublishSettings
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    /// <summary>A name for the destination, used only in the record and the approval prompt.</summary>
+    [JsonPropertyName("destination")]
+    public string Destination { get; set; } = string.Empty;
+
+    /// <summary>Endpoint that accepts the upload.</summary>
+    [JsonPropertyName("upload_url")]
+    public string UploadUrl { get; set; } = string.Empty;
+
+    /// <summary>Header carrying the credential, e.g. Authorization.</summary>
+    [JsonPropertyName("auth_header")]
+    public string AuthHeader { get; set; } = "Authorization";
+
+    [JsonPropertyName("auth_scheme")]
+    public string AuthScheme { get; set; } = "Bearer";
+
+    /// <summary>Name of the entry in secrets.json holding the token. Never the token itself.</summary>
+    [JsonPropertyName("secret_key")]
+    public string SecretKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// JSON metadata sent alongside the file. Placeholders: {{TITLE}}, {{DESCRIPTION}},
+    /// {{TAGS}}, {{VISIBILITY}}.
+    /// </summary>
+    [JsonPropertyName("metadata_template")]
+    public string MetadataTemplate { get; set; } = string.Empty;
+
+    /// <summary>Form field the video file is sent under.</summary>
+    [JsonPropertyName("file_field")]
+    public string FileField { get; set; } = "file";
+
+    /// <summary>Form field the JSON metadata is sent under.</summary>
+    [JsonPropertyName("metadata_field")]
+    public string MetadataField { get; set; } = "metadata";
+
+    /// <summary>JSON path to the id in the reply, e.g. "id" or "data.video_id".</summary>
+    [JsonPropertyName("id_path")]
+    public string IdPath { get; set; } = "id";
+
+    /// <summary>Template for the watch URL, with {{ID}} substituted.</summary>
+    [JsonPropertyName("url_template")]
+    public string UrlTemplate { get; set; } = string.Empty;
+
+    /// <summary>private | unlisted | public. Anything but private has to be chosen on purpose.</summary>
+    [JsonPropertyName("default_visibility")]
+    public string DefaultVisibility { get; set; } = "private";
 }

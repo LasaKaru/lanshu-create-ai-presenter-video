@@ -70,6 +70,29 @@ public sealed class ScriptDocument
         "\n",
         Beats.Select(beat => beat.Narration.Trim()).Where(text => text.Length > 0));
 
+    /// <summary>
+    /// A deep copy, so a translated version can be edited without touching the original —
+    /// the delivered English video is still built from the document this was cloned from.
+    /// </summary>
+    public ScriptDocument Clone() => new()
+    {
+        Title = Title,
+        Language = Language,
+        Source = Source,
+        Provider = Provider,
+        Model = Model,
+        Pronunciations = new List<string>(Pronunciations),
+        Notes = new List<string>(Notes),
+        Beats = Beats.Select(beat => new ScriptBeat
+        {
+            Role = beat.Role,
+            Title = beat.Title,
+            Narration = beat.Narration,
+            Keyword = beat.Keyword,
+            VisualNote = beat.VisualNote,
+        }).ToList(),
+    };
+
     [JsonIgnore]
     public double EstimatedSeconds => TextUtil.EstimateSpokenSeconds(Narration);
 

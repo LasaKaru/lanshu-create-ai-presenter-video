@@ -81,6 +81,27 @@ public sealed class JobManifest
     }
 }
 
+public static class JobManifestExtensions
+{
+    /// <summary>
+    /// A working copy of the job for one dub: the same creative decisions, but its own voice
+    /// record. Sharing the voice record would let the original language's takes be reused as
+    /// "already spoken" for a language they are not in.
+    /// </summary>
+    public static JobManifest CloneForDub(this JobManifest job, string language)
+    {
+        var clone = JobJson.Deserialize<JobManifest>(JobJson.Serialize(job))
+                    ?? throw new InvalidOperationException("the job could not be copied for dubbing");
+
+        clone.Creative.Language = language;
+        clone.Voice.Sections.Clear();
+        clone.Voice.ClonedVoiceId = job.Voice.ClonedVoiceId;
+        clone.Plan.Chapters = new List<PlanChapter>();
+
+        return clone;
+    }
+}
+
 public sealed class JobInput
 {
     [JsonPropertyName("topic")]
@@ -163,6 +184,20 @@ public sealed class JobCreative
     /// <summary>Extra aspect ratios to deliver from the same locked narration.</summary>
     [JsonPropertyName("additional_aspects")]
     public List<string> AdditionalAspects { get; set; } = new();
+
+    /// <summary>
+    /// Languages to write translated .srt sidecars for. The video still speaks the original
+    /// language — only the subtitle text changes, because the timings belong to the recording.
+    /// </summary>
+    [JsonPropertyName("subtitle_languages")]
+    public List<string> SubtitleLanguages { get; set; } = new();
+
+    /// <summary>
+    /// Languages to dub into. Each one is re-spoken, re-timed and rendered as its own version,
+    /// which costs a full run per language rather than a sidecar.
+    /// </summary>
+    [JsonPropertyName("dub_languages")]
+    public List<string> DubLanguages { get; set; } = new();
 
     [JsonPropertyName("publishing_kit")]
     public bool PublishingKit { get; set; } = true;
@@ -310,6 +345,13 @@ public sealed class JobPlan
 
     [JsonPropertyName("paid_generation_approved")]
     public bool PaidGenerationApproved { get; set; }
+
+    /// <summary>
+    /// Fingerprint of the one upload the operator approved. Not a boolean: an approval must name
+    /// the exact plan, so changing the title, destination, visibility or the file retires it.
+    /// </summary>
+    [JsonPropertyName("publish_approved_fingerprint")]
+    public string PublishApprovedFingerprint { get; set; } = string.Empty;
 
     [JsonPropertyName("retry_ceiling")]
     public int RetryCeiling { get; set; } = 3;
@@ -520,6 +562,14 @@ public sealed class JobArtifacts
 
     [JsonPropertyName("contact_sheet")]
     public string ContactSheet { get; set; } = string.Empty;
+
+    /// <summary>Translated subtitle sidecars, by language.</summary>
+    [JsonPropertyName("translated_subtitles")]
+    public List<string> TranslatedSubtitles { get; set; } = new();
+
+    /// <summary>Fully dubbed masters, by language.</summary>
+    [JsonPropertyName("dubbed_masters")]
+    public List<string> DubbedMasters { get; set; } = new();
 
     [JsonPropertyName("alternate_masters")]
     public List<string> AlternateMasters { get; set; } = new();
