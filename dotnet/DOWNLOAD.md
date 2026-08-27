@@ -91,6 +91,41 @@ HOW THE PICTURE MOVES
   sections kept wide. One unbroken framing for a whole minute looks like a
   webcam; this looks edited.
 
+A LOOK YOU CAN REUSE
+
+  Save the colours, font, caption style, watermark and title cards of a
+  video you liked as a "brand kit", then apply it to the next one by name
+  instead of setting it all up again.
+
+CAPTION STYLES
+
+  Four to choose from: a plain readable line, the same on a solid plate for
+  busy footage, a karaoke sweep that follows the voice, and a TikTok-style
+  one or two words at a time in large type.
+
+  The karaoke sweep needs real measured word timings (an ASR key in
+  Settings). Without them it quietly uses the plain style rather than
+  sweeping out of time with the voice.
+
+TITLE AND END CARDS
+
+  Give it a title and a subtitle and it puts a card on the front and back
+  of the video. The cards are added after the edit, so nothing else moves -
+  captions, callouts and the chapter list all stay where the voice put them.
+
+CHOOSING WHAT APPEARS WHEN
+
+  By default your extra pictures and clips are spread across the middle
+  sections. Press "Timeline" on a job to see the narration drawn as a
+  waveform with everything laid out against it, and drag a picture to where
+  you actually want it - or its edge to change how long it stays.
+
+TIGHTER, CLEANER NARRATION
+
+  Dead air at the start and end of each spoken line is trimmed off, and
+  filler words are dropped from the script before it is ever spoken, so the
+  captions never show a word the voice does not say.
+
 WITH API KEYS (Settings tab)
 
   Anthropic or OpenAI   full script drafting from a topic

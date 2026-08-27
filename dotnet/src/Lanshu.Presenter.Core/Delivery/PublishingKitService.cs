@@ -44,7 +44,8 @@ public sealed class PublishingKitService
         string coverFramePath,
         string stem,
         CancellationToken cancellationToken = default,
-        string? cleanSourceVideo = null)
+        string? cleanSourceVideo = null,
+        double programOffsetSeconds = 0)
     {
         var notes = new List<string>();
         var thumbnails = new List<string>();
@@ -66,7 +67,8 @@ public sealed class PublishingKitService
             notes.Add("no usable frame was available, so no thumbnails were generated");
         }
 
-        var (chaptersPath, descriptionPath) = WriteChaptersAndDescription(paths, job, script, stem, notes);
+        var (chaptersPath, descriptionPath) =
+            WriteChaptersAndDescription(paths, job, script, stem, notes, programOffsetSeconds);
         return new PublishingKit(thumbnails, chaptersPath, descriptionPath, notes);
     }
 
@@ -205,7 +207,8 @@ public sealed class PublishingKitService
         JobManifest job,
         ScriptDocument script,
         string stem,
-        List<string> notes)
+        List<string> notes,
+        double programOffsetSeconds)
     {
         var chapters = job.Plan.Chapters.OrderBy(chapter => chapter.StartSeconds).ToList();
         var chaptersPath = Path.Combine(paths.Outputs, $"{stem}-chapters.txt");
@@ -217,10 +220,13 @@ public sealed class PublishingKitService
         var chapterLines = new StringBuilder();
         if (usable)
         {
-            // The first marker must read 0:00 even if the first word lands a beat later.
+            // The first marker must read 0:00 even if the first word lands a beat later. Chapter
+            // times are measured against the narration, so an intro card joined onto the front of
+            // the program pushes every later chapter back by its length — a marker that ignores
+            // that lands the viewer a card's worth early on every chapter but the first.
             for (var index = 0; index < chapters.Count; index++)
             {
-                var start = index == 0 ? 0 : chapters[index].StartSeconds;
+                var start = index == 0 ? 0 : chapters[index].StartSeconds + programOffsetSeconds;
                 chapterLines.Append(Timecode(start)).Append(' ').AppendLine(ChapterTitle(chapters[index], index));
             }
         }

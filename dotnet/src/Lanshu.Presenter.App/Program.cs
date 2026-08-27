@@ -8,8 +8,10 @@ using Lanshu.Presenter.Core.Configuration;
 using Lanshu.Presenter.Core.Content;
 using Lanshu.Presenter.Core.Environment;
 using Lanshu.Presenter.Core.Jobs;
+using Lanshu.Presenter.Core.Media;
 using Lanshu.Presenter.Core.Models;
 using Lanshu.Presenter.Core.Pipeline;
+using Lanshu.Presenter.Core.Timeline;
 using Lanshu.Presenter.Core.Util;
 using Lanshu.Presenter.Core.Voice;
 using Microsoft.AspNetCore.Http.Features;
@@ -450,6 +452,130 @@ app.MapGet("/api/job/segments", (string dir) =>
             provider = job.Voice.Provider,
             voiceId = job.Voice.VoiceId,
         });
+    }
+    catch (Exception exception)
+    {
+        return Results.Json(new { error = exception.Message }, statusCode: 400);
+    }
+});
+
+app.MapGet("/api/job/timeline", async (string dir, SettingsStore store, CancellationToken token) =>
+{
+    try
+    {
+        var paths = new JobPaths(FileSystemUtil.ExpandPath(dir));
+        var job = new JobService().Load(paths);
+
+        var timelinePath = Path.Combine(paths.Docs, "timeline.json");
+        RenderTimeline? timeline = File.Exists(timelinePath)
+            ? JobJson.Deserialize<RenderTimeline>(await File.ReadAllTextAsync(timelinePath, token))
+            : null;
+
+        // The waveform is a drawing aid: a job that has not been spoken yet still returns its
+        // chapters and assignments so the lanes are usable before the first render.
+        var waveform = Waveform.Empty;
+        var narration = timeline?.NarrationPath;
+        if (!string.IsNullOrWhiteSpace(narration) && File.Exists(narration))
+        {
+            var settings = store.Load();
+            var toolset = await MediaToolset
+                .ResolveAsync(settings.FfmpegPath, settings.FfprobePath, cancellationToken: token);
+            waveform = await WaveformPeaks.MeasureAsync(new FfmpegService(toolset), narration, cancellationToken: token);
+        }
+
+        var assignments = job.Plan.InsertAssignments.ToDictionary(entry => entry.ChapterIndex);
+
+        return Results.Json(new
+        {
+            durationSeconds = timeline?.DurationSeconds ?? 0,
+            width = job.Creative.Width,
+            height = job.Creative.Height,
+            peaks = waveform.Peaks,
+            supportingMedia = job.Input.SupportingMedia
+                .Select(media => new { path = media, name = Path.GetFileName(media) }),
+            chapters = job.Plan.Chapters.OrderBy(chapter => chapter.Index).Select(chapter => new
+            {
+                index = chapter.Index,
+                title = chapter.Title,
+                role = chapter.Role,
+                startSeconds = chapter.StartSeconds,
+                durationSeconds = chapter.DurationSeconds,
+                assigned = assignments.TryGetValue(chapter.Index, out var entry) ? entry.Media : null,
+                assignedOffset = assignments.TryGetValue(chapter.Index, out var offset) ? offset.OffsetSeconds : -1,
+                assignedDuration = assignments.TryGetValue(chapter.Index, out var hold) ? hold.DurationSeconds : 0,
+                isAssigned = assignments.ContainsKey(chapter.Index),
+            }),
+            clips = (timeline?.Clips ?? new List<TimelineClip>()).Select(clip => new
+            {
+                kind = clip.Kind,
+                label = clip.Label,
+                name = Path.GetFileName(clip.Source),
+                startSeconds = clip.AuthoredStartSeconds,
+                durationSeconds = clip.AuthoredDurationSeconds,
+            }),
+            punchIns = (timeline?.PunchIns ?? new List<PunchIn>()).Select(punch => new
+            {
+                label = punch.Label,
+                startSeconds = punch.StartSeconds,
+                durationSeconds = punch.DurationSeconds,
+            }),
+            shots = (timeline?.Shots ?? new List<Shot>()).Select(shot => new
+            {
+                label = shot.Label,
+                startSeconds = shot.StartSeconds,
+                durationSeconds = shot.DurationSeconds,
+                scale = shot.Scale,
+            }),
+        });
+    }
+    catch (Exception exception)
+    {
+        return Results.Json(new { error = exception.Message }, statusCode: 400);
+    }
+});
+
+app.MapPost("/api/job/timeline", async (HttpRequest request) =>
+{
+    var body = await request.ReadFromJsonAsync<JsonObject>();
+    var directory = Text(body, "directory");
+    if (string.IsNullOrWhiteSpace(directory))
+    {
+        return Results.BadRequest(new { error = "directory is required" });
+    }
+
+    try
+    {
+        var paths = new JobPaths(FileSystemUtil.ExpandPath(directory));
+        var jobs = new JobService();
+        var job = jobs.Load(paths);
+
+        // The editor always sends the whole set, so a removed row means removed rather than
+        // unchanged: a partial merge would make it impossible to un-assign a chapter.
+        var replacement = new List<InsertAssignment>();
+        if (body?["assignments"] is JsonArray rows)
+        {
+            foreach (var row in rows.OfType<JsonObject>())
+            {
+                var chapterIndex = (int)Number(row, "chapterIndex", -1);
+                if (chapterIndex < 0)
+                {
+                    continue;
+                }
+
+                replacement.Add(new InsertAssignment
+                {
+                    ChapterIndex = chapterIndex,
+                    Media = Text(row, "media") ?? string.Empty,
+                    OffsetSeconds = Number(row, "offsetSeconds", -1),
+                    DurationSeconds = Number(row, "durationSeconds", 0),
+                });
+            }
+        }
+
+        job.Plan.InsertAssignments = replacement;
+        jobs.Save(paths, job);
+
+        return Results.Json(new { ok = true, count = replacement.Count });
     }
     catch (Exception exception)
     {

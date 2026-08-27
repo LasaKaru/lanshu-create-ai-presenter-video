@@ -47,6 +47,10 @@ public sealed class AppSettings
     [JsonPropertyName("render")]
     public RenderSettings Render { get; set; } = new();
 
+    /// <summary>Reusable looks, applied to a job by name.</summary>
+    [JsonPropertyName("brand_kits")]
+    public List<Branding.BrandKit> BrandKits { get; set; } = new();
+
     [JsonIgnore]
     public string ResolvedWorkspace =>
         string.IsNullOrWhiteSpace(Workspace) ? ToolLocator.DefaultWorkspace : FileSystemUtil.ExpandPath(Workspace);

@@ -62,13 +62,33 @@ public sealed class NarrationService
         var rate = job.Voice.Rate <= 0 ? 1.0 : job.Voice.Rate;
         var language = script.Language;
 
+        // Fillers are cut from the wording before it is segmented, so the captions and keyword
+        // anchors built from these same segments never contain a word the voice does not say.
+        var fillersRemoved = 0;
         var units = new List<(int BeatIndex, string Text)>();
         for (var beatIndex = 0; beatIndex < script.Beats.Count; beatIndex++)
         {
-            foreach (var segment in TextUtil.BuildSegments(script.Beats[beatIndex].Narration))
+            var narrationText = script.Beats[beatIndex].Narration;
+            if (job.Creative.TrimFillers)
+            {
+                var trimmed = FillerTrimmer.Trim(narrationText);
+                if (trimmed.Changed)
+                {
+                    fillersRemoved += trimmed.Removed;
+                    narrationText = trimmed.Text;
+                    script.Beats[beatIndex].Narration = narrationText;
+                }
+            }
+
+            foreach (var segment in TextUtil.BuildSegments(narrationText))
             {
                 units.Add((beatIndex, segment));
             }
+        }
+
+        if (fillersRemoved > 0)
+        {
+            _log?.Invoke($"Dropped {fillersRemoved} filler word(s) from the script before speaking it");
         }
 
         if (units.Count == 0)
@@ -79,10 +99,12 @@ public sealed class NarrationService
         // Segments already spoken with the same words and the same voice configuration are kept.
         // Re-synthesizing them would cost real money on a paid engine and change nothing.
         var previous = job.Voice.Sections.ToDictionary(section => section.Index, section => section);
-        var configurationChanged = !string.Equals(job.Voice.Provider, synthesizer.Provider, StringComparison.Ordinal);
+        var configurationChanged = !string.Equals(job.Voice.Provider, synthesizer.Provider, StringComparison.Ordinal)
+            || job.Voice.SilenceTrimmed != job.Creative.TrimSilence;
 
         var segments = new List<NarrationSegment>();
         var reused = 0;
+        var silenceTrimmed = 0.0;
 
         for (var index = 0; index < units.Count; index++)
         {
@@ -131,6 +153,18 @@ public sealed class NarrationService
             await NormalizeSegmentAsync(rawPath, normalizedPath, job.Voice.SegmentLufs, cancellationToken)
                 .ConfigureAwait(false);
 
+            if (job.Creative.TrimSilence)
+            {
+                var trim = await SilenceTrimmer
+                    .TrimAsync(_ffmpeg, normalizedPath, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (trim.Trimmed)
+                {
+                    silenceTrimmed += trim.TotalSeconds;
+                }
+            }
+
             var duration = await _ffmpeg.DurationAsync(normalizedPath, cancellationToken).ConfigureAwait(false);
             if (duration <= 0)
             {
@@ -153,6 +187,13 @@ public sealed class NarrationService
         {
             _log?.Invoke($"Reused {reused} of {units.Count} already-spoken segments");
         }
+
+        if (silenceTrimmed > 0.02)
+        {
+            _log?.Invoke($"Trimmed {silenceTrimmed:0.00}s of padded silence off the segment ends");
+        }
+
+        job.Voice.SilenceTrimmed = job.Creative.TrimSilence;
 
         // Lay out the real durations with breathing gaps; this is the timeline everything else uses.
         var positioned = new List<NarrationSegment>(segments.Count);

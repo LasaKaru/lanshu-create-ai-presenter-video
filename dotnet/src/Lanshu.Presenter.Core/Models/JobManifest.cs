@@ -170,8 +170,30 @@ public sealed class JobCreative
     [JsonPropertyName("caption_font")]
     public string CaptionFont { get; set; } = string.Empty;
 
+    /// <summary>classic | karaoke | boxed | tiktok</summary>
+    [JsonPropertyName("caption_style")]
+    public string CaptionStyle { get; set; } = "classic";
+
     [JsonPropertyName("accent_color")]
     public string AccentColor { get; set; } = "#F4C430";
+
+    /// <summary>Name of the brand kit this job's look came from, for the record.</summary>
+    [JsonPropertyName("brand_kit")]
+    public string BrandKit { get; set; } = string.Empty;
+
+    [JsonPropertyName("intro")]
+    public CardSettings Intro { get; set; } = new();
+
+    [JsonPropertyName("outro")]
+    public CardSettings Outro { get; set; } = new();
+
+    /// <summary>Trim silence the speech engine padded onto each segment.</summary>
+    [JsonPropertyName("trim_silence")]
+    public bool TrimSilence { get; set; } = true;
+
+    /// <summary>Drop filler words from the script before it is spoken.</summary>
+    [JsonPropertyName("trim_fillers")]
+    public bool TrimFillers { get; set; } = true;
 
     [JsonPropertyName("music_path")]
     public string MusicPath { get; set; } = string.Empty;
@@ -201,6 +223,10 @@ public sealed class JobVoice
     public double ProgramLufs { get; set; } = -16;
 
     /// <summary>Voice id created from the authorized sample, if one was cloned for this job.</summary>
+    /// <summary>Whether the takes on disk were made with silence trimming on, so a change re-speaks them.</summary>
+    [JsonPropertyName("silence_trimmed")]
+    public bool SilenceTrimmed { get; set; } = true;
+
     [JsonPropertyName("cloned_voice_id")]
     public string ClonedVoiceId { get; set; } = string.Empty;
 
@@ -256,6 +282,10 @@ public sealed class JobPlan
     [JsonPropertyName("closing_target_s")]
     public double ClosingTargetSeconds { get; set; } = 5;
 
+    /// <summary>Hand-placed supporting media. When empty, media is assigned round-robin.</summary>
+    [JsonPropertyName("insert_assignments")]
+    public List<InsertAssignment> InsertAssignments { get; set; } = new();
+
     [JsonPropertyName("chapters")]
     public List<PlanChapter> Chapters { get; set; } = new();
 
@@ -310,6 +340,68 @@ public sealed class PlanChapter
 
     [JsonPropertyName("supporting_media")]
     public string SupportingMedia { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// An operator's decision about which supporting clip belongs on which chapter, and when.
+/// Round-robin assignment is a reasonable default and a poor final answer: the media that proves
+/// the third point is rarely the third file in the folder.
+/// </summary>
+public sealed class InsertAssignment
+{
+    [JsonPropertyName("chapter_index")]
+    public int ChapterIndex { get; set; }
+
+    /// <summary>Path to the supporting file. Empty deliberately leaves the chapter clean.</summary>
+    [JsonPropertyName("media")]
+    public string Media { get; set; } = string.Empty;
+
+    /// <summary>Seconds after the chapter starts. Negative means "use the default lead".</summary>
+    [JsonPropertyName("offset_s")]
+    public double OffsetSeconds { get; set; } = -1;
+
+    /// <summary>Seconds to hold. Zero or less means "fit it to the chapter".</summary>
+    [JsonPropertyName("duration_s")]
+    public double DurationSeconds { get; set; }
+}
+
+/// <summary>
+/// A title or end card held before or after the program. The card sits outside the narration
+/// clock: captions, callouts and chapter times are all measured against the spoken audio, so a
+/// card is composited onto the finished program rather than mixed into the timeline, and the
+/// offset it introduces is applied to the delivered chapter marks instead of to the edit.
+/// </summary>
+public sealed class CardSettings
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("subtitle")]
+    public string Subtitle { get; set; } = string.Empty;
+
+    [JsonPropertyName("duration_s")]
+    public double DurationSeconds { get; set; } = 1.6;
+
+    /// <summary>Background colour behind the card, as #RRGGBB.</summary>
+    [JsonPropertyName("background")]
+    public string Background { get; set; } = "#0B0F14";
+
+    /// <summary>Optional logo or still shown above the title.</summary>
+    [JsonPropertyName("logo_path")]
+    public string LogoPath { get; set; } = string.Empty;
+
+    public CardSettings Clone() => new()
+    {
+        Enabled = Enabled,
+        Title = Title,
+        Subtitle = Subtitle,
+        DurationSeconds = DurationSeconds,
+        Background = Background,
+        LogoPath = LogoPath,
+    };
 }
 
 public sealed class JobCapabilities

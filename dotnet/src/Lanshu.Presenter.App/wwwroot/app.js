@@ -493,6 +493,11 @@ async function loadJobs() {
 $('refreshJobs').addEventListener('click', loadJobs);
 
 async function showJob(directory) {
+  if (state.selectedJob !== directory) {
+    $('timelineEditor').hidden = true;
+    $('timelineEditor').innerHTML = '';
+  }
+
   state.selectedJob = directory;
   await loadJobs();
   try {
@@ -510,6 +515,7 @@ async function showJob(directory) {
           <button class="primary small" id="runJob">${job.state === 'verified' ? 'Re-render' : 'Run'}</button>
           <button class="ghost small" id="previewJob">Fast preview</button>
           <button class="ghost small" id="editScript">Edit script</button>
+          <button class="ghost small" id="editTimeline">Timeline</button>
           <button class="ghost small" id="revealJob">Open folder</button>
         </div>
       </div>
@@ -553,6 +559,7 @@ async function showJob(directory) {
       $('runMessage').textContent = job.job_id;
       openScriptEditor(directory);
     });
+    $('editTimeline').addEventListener('click', () => openTimelineEditor(directory));
     $('revealJob').addEventListener('click', () =>
       api('/api/reveal', { method: 'POST', body: JSON.stringify({ path: directory }) }).catch((error) => toast(error.message)));
   } catch (error) {
@@ -797,3 +804,413 @@ $('installFfmpeg').addEventListener('click', async () => {
     toast(error.message, 8000);
   }
 })();
+
+/* ----------------------------------------------------------------- timeline */
+
+/*
+ * The timeline editor. The narration is the clock, so the waveform is the ruler and everything
+ * else is drawn against it: chapters, the presenter track, the inserts you can move, and the
+ * punch-ins and shots the run derived. Only inserts are draggable — the rest is measured from
+ * the audio, and letting someone drag a chapter boundary would just be lying to them about what
+ * the render will do.
+ */
+const timelineState = {
+  directory: null,
+  data: null,
+  assignments: new Map(),
+  drag: null,
+  dirty: false,
+};
+
+const LANES = [
+  { key: 'chapters', label: 'Chapters', height: 34 },
+  { key: 'presenter', label: 'Presenter', height: 26 },
+  { key: 'inserts', label: 'B-roll', height: 34 },
+  { key: 'shots', label: 'Shots', height: 22 },
+  { key: 'punches', label: 'Emphasis', height: 18 },
+];
+
+const GUTTER = 96;
+const WAVE_HEIGHT = 72;
+const LANE_GAP = 6;
+
+async function openTimelineEditor(directory) {
+  const panel = $('timelineEditor');
+  panel.hidden = false;
+  panel.innerHTML = '<p class="hint">Reading the timeline…</p>';
+
+  let data;
+  try {
+    data = await api(`/api/job/timeline?dir=${encodeURIComponent(directory)}`);
+  } catch (error) {
+    panel.innerHTML = `<div class="callout bad">${escapeHtml(error.message)}</div>`;
+    return;
+  }
+
+  if (!data.durationSeconds) {
+    panel.innerHTML = `
+      <div class="card-head"><h2>Timeline</h2></div>
+      <p class="empty">This job has not been rendered yet. Chapters are measured from the spoken
+      narration, so there is nothing to place media against until it has run once.</p>`;
+    return;
+  }
+
+  timelineState.directory = directory;
+  timelineState.data = data;
+  timelineState.dirty = false;
+  timelineState.assignments = new Map();
+  data.chapters.forEach((chapter) => {
+    if (chapter.isAssigned) {
+      timelineState.assignments.set(chapter.index, {
+        media: chapter.assigned || '',
+        offsetSeconds: chapter.assignedOffset,
+        durationSeconds: chapter.assignedDuration,
+      });
+    }
+  });
+
+  panel.innerHTML = `
+    <div class="card-head">
+      <h2>Timeline</h2>
+      <div>
+        <button class="primary small" id="timelineSave" disabled>Save</button>
+        <button class="ghost small" id="timelineReset">Reset</button>
+      </div>
+    </div>
+    <p class="hint" id="timelineHint">Drag a B-roll block to move it, or its right edge to change how long it holds.</p>
+    <canvas id="timelineCanvas" class="timeline"></canvas>
+    <div id="timelineRows" class="timeline-rows"></div>`;
+
+  $('timelineSave').addEventListener('click', saveTimeline);
+  $('timelineReset').addEventListener('click', () => openTimelineEditor(directory));
+
+  const canvas = $('timelineCanvas');
+  canvas.addEventListener('pointerdown', onTimelinePointerDown);
+  canvas.addEventListener('pointermove', onTimelinePointerMove);
+  canvas.addEventListener('pointerup', onTimelinePointerUp);
+  canvas.addEventListener('pointercancel', onTimelinePointerUp);
+  window.addEventListener('resize', drawTimeline);
+
+  drawTimeline();
+  renderTimelineRows();
+}
+
+/** Where each lane sits vertically, so hit-testing and drawing agree by construction. */
+function laneGeometry() {
+  const rows = {};
+  let y = WAVE_HEIGHT + LANE_GAP * 2;
+  LANES.forEach((lane) => {
+    rows[lane.key] = { top: y, height: lane.height, label: lane.label };
+    y += lane.height + LANE_GAP;
+  });
+  return { rows, total: y };
+}
+
+function timelineScale() {
+  const canvas = $('timelineCanvas');
+  const width = canvas.clientWidth - GUTTER - 12;
+  return {
+    width,
+    toX: (seconds) => GUTTER + (seconds / timelineState.data.durationSeconds) * width,
+    toSeconds: (x) => ((x - GUTTER) / width) * timelineState.data.durationSeconds,
+  };
+}
+
+/** The insert blocks as currently edited, which is what both drawing and hit-testing read. */
+function currentInserts() {
+  const data = timelineState.data;
+  return data.chapters.map((chapter) => {
+    const edited = timelineState.assignments.get(chapter.index);
+    const fromRender = data.clips.find(
+      (clip) => clip.kind === 'insert' && Math.abs(clip.startSeconds - chapter.startSeconds) < chapter.durationSeconds);
+
+    if (edited) {
+      if (!edited.media) return null;
+      const offset = edited.offsetSeconds >= 0 ? edited.offsetSeconds : 0.3;
+      const hold = edited.durationSeconds > 0
+        ? edited.durationSeconds
+        : Math.min(4.5, Math.max(0.6, chapter.durationSeconds - offset - 0.3));
+      return { chapter, name: shortName(edited.media), start: chapter.startSeconds + offset, duration: hold, edited: true };
+    }
+
+    if (fromRender) {
+      return { chapter, name: fromRender.name, start: fromRender.startSeconds, duration: fromRender.durationSeconds, edited: false };
+    }
+
+    return null;
+  }).filter(Boolean);
+}
+
+function shortName(path) {
+  return (path || '').split(/[\\/]/).pop();
+}
+
+function drawTimeline() {
+  const canvas = $('timelineCanvas');
+  if (!canvas || !timelineState.data) return;
+
+  const { rows, total } = laneGeometry();
+  const ratio = window.devicePixelRatio || 1;
+  const cssWidth = canvas.clientWidth;
+  canvas.style.height = `${total + 18}px`;
+  canvas.width = Math.round(cssWidth * ratio);
+  canvas.height = Math.round((total + 18) * ratio);
+
+  const context = canvas.getContext('2d');
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, cssWidth, total + 18);
+
+  // Colours come from the stylesheet so the canvas follows the light and dark themes.
+  const style = getComputedStyle(document.documentElement);
+  const token = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+  const ink = token('--text', '#e6edf3');
+  const muted = token('--muted', '#98a5b3');
+  const accent = token('--accent', '#f4c430');
+  const accentInk = token('--accent-ink', '#1a1508');
+  const line = token('--line', '#2a3441');
+  const lane = {
+    chapterA: token('--tl-chapter-a', '#2b3a4d'),
+    chapterB: token('--tl-chapter-b', '#334559'),
+    presenter: token('--tl-presenter', '#2f4a3c'),
+    insert: token('--tl-insert', '#4a6fa5'),
+    shot: token('--tl-shot', '#3d3552'),
+  };
+
+  const scale = timelineScale();
+  const data = timelineState.data;
+
+  context.font = '11px system-ui, sans-serif';
+  context.textBaseline = 'middle';
+
+  // Waveform: the spoken audio, drawn as a mirrored peak envelope.
+  if (data.peaks && data.peaks.length) {
+    context.fillStyle = line;
+    context.fillRect(GUTTER, LANE_GAP, scale.width, WAVE_HEIGHT);
+    context.fillStyle = muted;
+    const mid = LANE_GAP + WAVE_HEIGHT / 2;
+    const step = scale.width / data.peaks.length;
+    data.peaks.forEach((peak, index) => {
+      const height = Math.max(1, peak * (WAVE_HEIGHT / 2 - 2));
+      context.fillRect(GUTTER + index * step, mid - height, Math.max(1, step - 0.4), height * 2);
+    });
+  }
+
+  // Second ticks along the top of the waveform.
+  context.fillStyle = muted;
+  const tickStep = data.durationSeconds > 90 ? 15 : data.durationSeconds > 30 ? 5 : 2;
+  for (let second = 0; second <= data.durationSeconds; second += tickStep) {
+    const x = scale.toX(second);
+    context.fillRect(x, LANE_GAP, 1, 5);
+    context.fillText(`${second}s`, x + 3, LANE_GAP + 10);
+  }
+
+  LANES.forEach((lane) => {
+    const row = rows[lane.key];
+    context.fillStyle = muted;
+    context.textAlign = 'right';
+    context.fillText(row.label, GUTTER - 10, row.top + row.height / 2);
+    context.textAlign = 'left';
+    context.fillStyle = line;
+    context.fillRect(GUTTER, row.top, scale.width, row.height);
+  });
+
+  const block = (row, start, duration, fill, text, textColour) => {
+    const x = scale.toX(start);
+    const width = Math.max(2, scale.toX(start + duration) - x);
+    context.fillStyle = fill;
+    context.fillRect(x, row.top, width, row.height);
+    if (text && width > 26) {
+      context.save();
+      context.beginPath();
+      context.rect(x + 3, row.top, width - 6, row.height);
+      context.clip();
+      context.fillStyle = textColour;
+      context.fillText(text, x + 5, row.top + row.height / 2);
+      context.restore();
+    }
+  };
+
+  data.chapters.forEach((chapter, index) => {
+    block(rows.chapters, chapter.startSeconds, chapter.durationSeconds,
+      index % 2 ? lane.chapterA : lane.chapterB, `${chapter.index}· ${chapter.title}`, ink);
+  });
+
+  data.clips.filter((clip) => clip.kind === 'presenter').forEach((clip) => {
+    block(rows.presenter, clip.startSeconds, clip.durationSeconds, lane.presenter, clip.label, ink);
+  });
+
+  currentInserts().forEach((insert) => {
+    block(rows.inserts, insert.start, insert.duration,
+      insert.edited ? accent : lane.insert, insert.name, insert.edited ? accentInk : ink);
+    // A visible grab handle on the right edge, so resizing is discoverable.
+    const right = scale.toX(insert.start + insert.duration);
+    context.fillStyle = accentInk;
+    context.fillRect(right - 3, rows.inserts.top + 4, 2, rows.inserts.height - 8);
+  });
+
+  data.shots.forEach((shot) => {
+    block(rows.shots, shot.startSeconds, shot.durationSeconds, lane.shot, shot.label.split(' — ')[0], ink);
+  });
+
+  data.punchIns.forEach((punch) => {
+    block(rows.punches, punch.startSeconds, punch.durationSeconds, accent, '', accentInk);
+  });
+}
+
+function hitInsert(x, y) {
+  const { rows } = laneGeometry();
+  const row = rows.inserts;
+  if (y < row.top || y > row.top + row.height) return null;
+
+  const scale = timelineScale();
+  for (const insert of currentInserts()) {
+    const left = scale.toX(insert.start);
+    const right = scale.toX(insert.start + insert.duration);
+    if (x >= left && x <= right) {
+      // The last few pixels resize; anything else moves.
+      return { insert, mode: x > right - 8 ? 'resize' : 'move', grabSeconds: scale.toSeconds(x) - insert.start };
+    }
+  }
+
+  return null;
+}
+
+function onTimelinePointerDown(event) {
+  const canvas = $('timelineCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const hit = hitInsert(event.clientX - rect.left, event.clientY - rect.top);
+  if (!hit) return;
+
+  timelineState.drag = hit;
+  canvas.setPointerCapture(event.pointerId);
+  canvas.style.cursor = hit.mode === 'resize' ? 'ew-resize' : 'grabbing';
+}
+
+function onTimelinePointerMove(event) {
+  const canvas = $('timelineCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  if (!timelineState.drag) {
+    const hover = hitInsert(x, y);
+    canvas.style.cursor = hover ? (hover.mode === 'resize' ? 'ew-resize' : 'grab') : 'default';
+    return;
+  }
+
+  const { insert, mode, grabSeconds } = timelineState.drag;
+  const chapter = insert.chapter;
+  const scale = timelineScale();
+  const seconds = scale.toSeconds(x);
+
+  // An insert belongs to its chapter: it cannot be dragged out of the passage it illustrates.
+  const minOffset = 0;
+  const maxOffset = Math.max(0, chapter.durationSeconds - 0.6);
+
+  if (mode === 'move') {
+    const offset = clamp(seconds - grabSeconds - chapter.startSeconds, minOffset, maxOffset);
+    const hold = Math.min(insert.duration, chapter.durationSeconds - offset);
+    setAssignment(chapter.index, insert, offset, hold);
+  } else {
+    const offset = insert.start - chapter.startSeconds;
+    const hold = clamp(seconds - insert.start, 0.6, chapter.durationSeconds - offset);
+    setAssignment(chapter.index, insert, offset, hold);
+  }
+
+  drawTimeline();
+}
+
+function onTimelinePointerUp(event) {
+  const canvas = $('timelineCanvas');
+  if (timelineState.drag) {
+    canvas.releasePointerCapture?.(event.pointerId);
+    timelineState.drag = null;
+    canvas.style.cursor = 'default';
+    renderTimelineRows();
+  }
+}
+
+function clamp(value, low, high) {
+  return Math.min(Math.max(value, low), Math.max(low, high));
+}
+
+function setAssignment(chapterIndex, insert, offsetSeconds, durationSeconds) {
+  const existing = timelineState.assignments.get(chapterIndex);
+  const media = existing?.media || fullPath(insert.name);
+  timelineState.assignments.set(chapterIndex, {
+    media,
+    offsetSeconds: round(offsetSeconds),
+    durationSeconds: round(durationSeconds),
+  });
+  markTimelineDirty();
+}
+
+/** Drag hands back a file name; the job stores the path it was given at init. */
+function fullPath(name) {
+  const match = (timelineState.data.supportingMedia || []).find((media) => media.name === name);
+  return match ? match.path : name;
+}
+
+function round(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function markTimelineDirty() {
+  timelineState.dirty = true;
+  const save = $('timelineSave');
+  if (save) save.disabled = false;
+}
+
+/** A row per chapter, so media can be assigned without dragging anything. */
+function renderTimelineRows() {
+  const host = $('timelineRows');
+  if (!host) return;
+
+  const media = timelineState.data.supportingMedia || [];
+  host.innerHTML = timelineState.data.chapters.map((chapter) => {
+    const edited = timelineState.assignments.get(chapter.index);
+    const current = edited ? edited.media : '';
+    const auto = !edited;
+    const options = ['<option value="">— none —</option>']
+      .concat(media.map((item) => `<option value="${escapeHtml(item.path)}"${item.path === current ? ' selected' : ''}>${escapeHtml(item.name)}</option>`))
+      .join('');
+
+    return `<label class="timeline-row">
+      <span class="ix">${chapter.index}</span>
+      <span class="title">${escapeHtml(chapter.title)}</span>
+      <select data-chapter="${chapter.index}">${options}</select>
+      <span class="hint">${auto ? 'automatic' : 'set by hand'}</span>
+    </label>`;
+  }).join('');
+
+  host.querySelectorAll('select[data-chapter]').forEach((select) => {
+    select.addEventListener('change', () => {
+      const index = Number(select.dataset.chapter);
+      timelineState.assignments.set(index, {
+        media: select.value,
+        offsetSeconds: -1,
+        durationSeconds: 0,
+      });
+      markTimelineDirty();
+      drawTimeline();
+      renderTimelineRows();
+    });
+  });
+}
+
+async function saveTimeline() {
+  const assignments = Array.from(timelineState.assignments.entries())
+    .map(([chapterIndex, value]) => ({ chapterIndex, ...value }));
+
+  try {
+    await api('/api/job/timeline', {
+      method: 'POST',
+      body: JSON.stringify({ directory: timelineState.directory, assignments }),
+    });
+    timelineState.dirty = false;
+    $('timelineSave').disabled = true;
+    $('timelineHint').textContent = 'Saved. Run the job again to rebuild the timeline with these placements.';
+  } catch (error) {
+    toast(error.message);
+  }
+}

@@ -207,6 +207,81 @@ A closer shot also raises the crop, since a tighter frame on a standing subject 
 face rather than the chest. Punch-ins compose on top of the shot's scale, so an emphasis beat
 inside a close shot still reads as a push rather than jumping back to wide.
 
+## Brand kits
+
+A kit is the reusable half of a video's look — accent colour, caption font and style, watermark,
+music bed, and the title and end cards — saved once and applied by name:
+
+```bash
+lanshu brand --save house --job-dir <a job you liked>   # capture a look you already tuned
+lanshu brand --save house --accent "#F4C430" --caption-style tiktok --intro "Field notes"
+lanshu init --brand house ...                            # apply it to the next job
+```
+
+A kit only carries presentation, never what is said, how long it runs or which voice speaks it —
+those belong to the job. Applying a kit writes only the fields the kit actually has, so a kit with
+no watermark does not erase one you set by hand.
+
+## Caption style presets
+
+`caption_style` picks how the burned-in captions read:
+
+| Style | What it does |
+|---|---|
+| `classic` | one readable line, the keyword in the accent colour |
+| `boxed` | the same, on an opaque plate for busy or bright footage |
+| `karaoke` | the accent sweeps across the line in time with the voice |
+| `tiktok` | one or two words at a time, oversized, each landing with a scale pop |
+
+`karaoke` needs **measured** word timings and silently falls back to `classic` without them: a
+sweep driven by estimated timings drifts off the voice within a sentence, which reads worse than
+no sweep at all.
+
+## Title and end cards
+
+Cards are joined onto the *rendered program* rather than cut into the timeline. Captions,
+callouts, punch-ins and chapter times are all measured against the spoken narration, so pushing a
+card into the edit would shift every one of them by its length. The only thing that has to learn
+about the offset is the chapter list a publisher reads, which is shifted by the intro's duration,
+and the QA duration gate, which is told the card length rather than having its tolerance widened.
+
+## Choosing what goes where
+
+Supporting media defaults to round-robin over the body chapters. `lanshu broll` replaces that with
+your own decisions:
+
+```bash
+lanshu broll                                  # what is on each chapter now
+lanshu broll --set 2=diagram.png --at 0.5 --for 3
+lanshu broll --clear 2                        # keep this chapter clean
+```
+
+`--clear` records an explicit empty assignment rather than deleting the row, so "leave this one
+alone" survives the next run instead of handing the chapter back to round-robin.
+
+The studio has the same thing as a **timeline editor**: the narration waveform as the ruler, with
+lanes for chapters, the presenter track, B-roll, shots and emphasis beats. Drag a B-roll block to
+move it or its right edge to change how long it holds. Only B-roll is draggable — everything else
+is measured from the audio, and letting you drag a chapter boundary would just be lying about what
+the render will do.
+
+## Silence and filler trimming
+
+Two different problems, fixed in two different places.
+
+**Silence** is trimmed from the head and tail of each spoken segment, because engines pad by
+hundreds of milliseconds and that padding stacks on top of the gaps the assembly lays out
+deliberately. Silence *inside* a sentence is left alone — that is the speaker breathing, and
+removing it is what makes synthesized narration sound like it is gabbling.
+
+**Fillers** are cut from the script before it is spoken, not from the finished waveform. A speech
+engine says exactly what it is given, so a filler in the output was a filler in the input; cutting
+it at the text means the captions, keyword anchors and chapter times are all built from the same
+trimmed wording with nothing to re-align. Only sounds (`um`, `uh`, `erm`) go unconditionally.
+A discourse marker like "you know" is cut only when a comma sets it off — "do you know the answer"
+is a sentence, not padding — and hedges like "just", "really" and "kind of" are left alone
+entirely, because deleting them is a rewrite rather than a trim.
+
 ## Multi-aspect delivery and the publishing kit
 
 `--also-aspect 16:9 --also-aspect 1:1` delivers extra ratios from the same locked narration. The
@@ -308,7 +383,7 @@ The studio needs `ffmpeg` and `ffprobe`. If they are not on the machine, open th
 
 ```bash
 cd dotnet
-dotnet test LanshuPresenter.sln          # 121 tests
+dotnet test LanshuPresenter.sln          # 157 tests
 ./build/publish.sh win-x64               # or linux-x64, osx-arm64, ...
 ```
 
@@ -346,7 +421,7 @@ contact sheet so it can be reviewed without a video player; `--open` launches it
 player.
 
 Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `lipsync`,
-`voices`, `jobs`, `config`, `version`.
+`brand`, `broll`, `voices`, `jobs`, `config`, `version`.
 `lanshu` with no arguments prints the full reference.
 
 `lanshu run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is

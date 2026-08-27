@@ -21,6 +21,9 @@ public sealed record CaptionStyleOptions
 
     public bool CalloutsEnabled { get; init; } = true;
 
+    /// <summary>classic | karaoke | boxed | tiktok</summary>
+    public string CaptionStyle { get; init; } = "classic";
+
     public bool Cjk { get; init; }
 
     public bool Portrait => Height > Width;
@@ -72,6 +75,17 @@ public static class AssWriter
             $"Style: Caption,{font},{captionSize},&H00FFFFFF,&H00FFFFFF,&H00101215,&H96000000,-1,0,0,0,100,100,0.6,0,1,{Math.Max(2, captionSize / 12)},0,2,{marginH},{marginH},{marginV},1");
         builder.AppendLine(CultureInfo.InvariantCulture,
             $"Style: CaptionAccent,{font},{captionSize},{accent},&H00FFFFFF,&H00101215,&H96000000,-1,0,0,0,100,100,0.6,0,1,{Math.Max(2, captionSize / 12)},0,2,{marginH},{marginH},{marginV},1");
+        // A boxed caption paints a plate behind the text so it stays readable over a busy frame.
+        // BorderStyle 3 draws that plate in OutlineColour, and ASS alpha runs backwards — &H00 is
+        // opaque and &HFF is invisible — so the near-solid plate wants a *low* alpha byte.
+        builder.AppendLine(CultureInfo.InvariantCulture,
+            $"Style: CaptionBoxed,{font},{captionSize},&H00FFFFFF,&H00FFFFFF,&H14101215,&H14101215,-1,0,0,0,100,100,0.6,0,3,{Math.Max(6, captionSize / 5)},0,2,{marginH},{marginH},{marginV},1");
+        // Karaoke sweeps PrimaryColour over SecondaryColour, so the accent must be primary here.
+        builder.AppendLine(CultureInfo.InvariantCulture,
+            $"Style: CaptionKaraoke,{font},{captionSize},{accent},&H00FFFFFF,&H00101215,&H96000000,-1,0,0,0,100,100,0.6,0,1,{Math.Max(2, captionSize / 12)},0,2,{marginH},{marginH},{marginV},1");
+        // One or two words at a time, sitting higher and much larger than a reading caption.
+        builder.AppendLine(CultureInfo.InvariantCulture,
+            $"Style: CaptionPop,{font},{(int)Math.Round(captionSize * 1.55)},&H00FFFFFF,&H00FFFFFF,&H00101215,&H00000000,-1,0,0,0,100,100,0.4,0,1,{Math.Max(4, captionSize / 6)},0,2,{marginH / 2},{marginH / 2},{(int)Math.Round(marginV * 1.35)},1");
         builder.AppendLine(CultureInfo.InvariantCulture,
             $"Style: Callout,{font},{calloutSize},&H00FFFFFF,&H00FFFFFF,&H00101215,&H00000000,-1,0,0,0,100,100,0.8,0,1,{Math.Max(3, calloutSize / 10)},0,5,20,20,20,1");
         builder.AppendLine(CultureInfo.InvariantCulture,
@@ -89,9 +103,32 @@ public static class AssWriter
 
         if (options.CaptionsEnabled)
         {
+            // Karaoke needs to know when each word lands. On estimated timings the sweep drifts
+            // away from the voice within a sentence, which reads worse than no sweep at all, so
+            // the style quietly falls back rather than shipping a wrong-looking effect.
+            var style = options.CaptionStyle?.Trim().ToLowerInvariant() ?? "classic";
+            if (style is "karaoke" && !plan.WordTimingsAreMeasured)
+            {
+                style = "classic";
+            }
+
             foreach (var phrase in plan.Phrases)
             {
-                WriteCaption(builder, phrase, options, accent);
+                switch (style)
+                {
+                    case "karaoke":
+                        WriteKaraokeCaption(builder, phrase);
+                        break;
+                    case "boxed":
+                        WriteCaption(builder, phrase, options, accent, "CaptionBoxed");
+                        break;
+                    case "tiktok":
+                        WritePopCaption(builder, phrase, accent);
+                        break;
+                    default:
+                        WriteCaption(builder, phrase, options, accent, "Caption");
+                        break;
+                }
             }
         }
 
@@ -119,7 +156,8 @@ public static class AssWriter
         StringBuilder builder,
         CaptionPhrase phrase,
         CaptionStyleOptions options,
-        string accent)
+        string accent,
+        string styleName)
     {
         // Quick entrance and exit so reading stability is preserved between phrases.
         var text = new StringBuilder("{\\fad(90,90)}");
@@ -143,7 +181,108 @@ public static class AssWriter
         }
 
         builder.AppendLine(CultureInfo.InvariantCulture,
-            $"Dialogue: 1,{Time(phrase.StartSeconds)},{Time(phrase.EndSeconds)},Caption,,0,0,0,,{text}");
+            $"Dialogue: 1,{Time(phrase.StartSeconds)},{Time(phrase.EndSeconds)},{styleName},,0,0,0,,{text}");
+    }
+
+    /// <summary>
+    /// Sweeps the accent across the phrase in time with the voice. libass measures \kf in
+    /// centiseconds of its own event, so the durations must tile the event exactly: any gap
+    /// between two measured words is charged to the word that follows it, and the leftover after
+    /// the last word is charged to that word, so the sweep finishes exactly when the line does.
+    /// </summary>
+    private static void WriteKaraokeCaption(StringBuilder builder, CaptionPhrase phrase)
+    {
+        if (phrase.Words.Count == 0)
+        {
+            builder.AppendLine(CultureInfo.InvariantCulture,
+                $"Dialogue: 1,{Time(phrase.StartSeconds)},{Time(phrase.EndSeconds)},CaptionKaraoke,,0,0,0,,{{\fad(90,90)}}{Escape(phrase.Text)}");
+            return;
+        }
+
+        var text = new StringBuilder("{\fad(90,90)}");
+        var cursor = phrase.StartSeconds;
+
+        for (var index = 0; index < phrase.Words.Count; index++)
+        {
+            var word = phrase.Words[index];
+            var isLast = index == phrase.Words.Count - 1;
+            var until = isLast ? phrase.EndSeconds : Math.Max(word.EndSeconds, cursor);
+            var centiseconds = (int)Math.Round(Math.Max(0, until - cursor) * 100);
+            cursor = until;
+
+            text.Append(CultureInfo.InvariantCulture, $"{{\\kf{centiseconds}}}");
+            text.Append(Escape(word.Word));
+            if (!isLast)
+            {
+                text.Append(' ');
+            }
+        }
+
+        builder.AppendLine(CultureInfo.InvariantCulture,
+            $"Dialogue: 1,{Time(phrase.StartSeconds)},{Time(phrase.EndSeconds)},CaptionKaraoke,,0,0,0,,{text}");
+    }
+
+    /// <summary>
+    /// One or two words at a time, each landing with a short scale pop. Without measured word
+    /// timings the phrase is divided evenly, which still reads correctly because each chunk is
+    /// on screen only as long as its share of the phrase.
+    /// </summary>
+    private static void WritePopCaption(StringBuilder builder, CaptionPhrase phrase, string accent)
+    {
+        var chunks = ChunkForPop(phrase);
+        foreach (var (text, start, end) in chunks)
+        {
+            if (end - start < 0.06)
+            {
+                continue;
+            }
+
+            var colour = string.Equals(text, phrase.Highlight, StringComparison.OrdinalIgnoreCase)
+                ? $"\\c{accent[2..]}"
+                : string.Empty;
+
+            builder.AppendLine(CultureInfo.InvariantCulture,
+                $"Dialogue: 1,{Time(start)},{Time(end)},CaptionPop,,0,0,0,,{{{colour}\\fscx86\\fscy86\\t(0,110,\\fscx104\\fscy104)\\t(110,180,\\fscx100\\fscy100)\\fad(40,60)}}{Escape(text.ToUpperInvariant())}");
+        }
+    }
+
+    /// <summary>Groups a phrase into pop-sized chunks of at most two words, with their own times.</summary>
+    internal static IReadOnlyList<(string Text, double Start, double End)> ChunkForPop(CaptionPhrase phrase)
+    {
+        const int wordsPerChunk = 2;
+        var chunks = new List<(string, double, double)>();
+
+        if (phrase.Words.Count == 0)
+        {
+            var words = phrase.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0)
+            {
+                return chunks;
+            }
+
+            var groups = (int)Math.Ceiling(words.Length / (double)wordsPerChunk);
+            var span = phrase.DurationSeconds / Math.Max(1, groups);
+            for (var index = 0; index < groups; index++)
+            {
+                var slice = words.Skip(index * wordsPerChunk).Take(wordsPerChunk);
+                var start = phrase.StartSeconds + (index * span);
+                var end = index == groups - 1 ? phrase.EndSeconds : start + span;
+                chunks.Add((string.Join(' ', slice), start, end));
+            }
+
+            return chunks;
+        }
+
+        for (var index = 0; index < phrase.Words.Count; index += wordsPerChunk)
+        {
+            var slice = phrase.Words.Skip(index).Take(wordsPerChunk).ToList();
+            var isLast = index + wordsPerChunk >= phrase.Words.Count;
+            var start = index == 0 ? phrase.StartSeconds : slice[0].StartSeconds;
+            var end = isLast ? phrase.EndSeconds : slice[^1].EndSeconds;
+            chunks.Add((string.Join(' ', slice.Select(word => word.Word)), start, end));
+        }
+
+        return chunks;
     }
 
     private static void WriteCallout(

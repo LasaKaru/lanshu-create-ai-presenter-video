@@ -18,6 +18,18 @@ public sealed class TimelineBuilder
     private static readonly string[] StillExtensions =
         { ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff" };
 
+    /// <summary>How far into a chapter an insert lands when nobody has said otherwise.</summary>
+    private const double DefaultInsertLeadSeconds = 0.3;
+
+    /// <summary>An insert that outstays this stops supporting the point and becomes the point.</summary>
+    private const double MaximumInsertSeconds = 4.5;
+
+    private readonly record struct Placement(
+        PlanChapter Chapter,
+        string Media,
+        double OffsetSeconds,
+        double DurationSeconds);
+
     private readonly FfmpegService _ffmpeg;
 
     public TimelineBuilder(FfmpegService ffmpeg)
@@ -67,36 +79,31 @@ public sealed class TimelineBuilder
         job.Plan.OpeningTargetSeconds = chapters.FirstOrDefault()?.DurationSeconds ?? job.Plan.OpeningTargetSeconds;
         job.Plan.ClosingTargetSeconds = chapters.LastOrDefault()?.DurationSeconds ?? job.Plan.ClosingTargetSeconds;
 
-        // Supporting media only appears where it proves or clarifies a spoken point, so it is
-        // bound to body chapters and never to the hook or the close.
+        // Supporting media only appears where it proves or clarifies a spoken point. Where it
+        // lands is ResolvePlacements' call: an operator's own assignments if there are any,
+        // otherwise a round-robin over the body chapters.
         var supporting = job.Input.SupportingMedia
             .Where(File.Exists)
             .ToList();
 
         if (supporting.Count > 0)
         {
-            var bodyChapters = chapters
-                .Where(chapter => chapter.Role == "beat")
-                .ToList();
-
-            if (bodyChapters.Count == 0)
+            foreach (var placement in ResolvePlacements(job, chapters, supporting))
             {
-                bodyChapters = chapters.Skip(1).Take(Math.Max(0, chapters.Count - 2)).ToList();
-            }
-
-            for (var index = 0; index < supporting.Count && index < bodyChapters.Count; index++)
-            {
-                var media = supporting[index];
-                var chapter = bodyChapters[index];
+                var (chapter, media, requestedOffset, requestedDuration) = placement;
                 var isStill = StillExtensions.Contains(Path.GetExtension(media).ToLowerInvariant());
 
-                var available = chapter.DurationSeconds - 0.6;
+                var lead = requestedOffset >= 0 ? requestedOffset : DefaultInsertLeadSeconds;
+                var available = chapter.DurationSeconds - lead - 0.3;
                 if (available < 1.2)
                 {
                     continue;
                 }
 
-                var duration = Math.Min(available, 4.5);
+                var duration = requestedDuration > 0
+                    ? Math.Min(requestedDuration, available)
+                    : Math.Min(available, MaximumInsertSeconds);
+
                 if (!isStill)
                 {
                     var sourceDuration = await _ffmpeg.DurationAsync(media, cancellationToken).ConfigureAwait(false);
@@ -106,12 +113,17 @@ public sealed class TimelineBuilder
                     }
                 }
 
+                if (duration < 0.6)
+                {
+                    continue;
+                }
+
                 timeline.Clips.Add(new TimelineClip
                 {
                     Kind = "insert",
                     Source = media,
                     IsStill = isStill,
-                    AuthoredStartSeconds = Math.Round(chapter.StartSeconds + 0.3, 3),
+                    AuthoredStartSeconds = Math.Round(chapter.StartSeconds + lead, 3),
                     AuthoredDurationSeconds = Math.Round(duration, 3),
                     SourceOffsetSeconds = 0,
                     Label = chapter.Title,
@@ -132,6 +144,69 @@ public sealed class TimelineBuilder
         }
 
         return timeline;
+    }
+
+    /// <summary>
+    /// Decides where each supporting file goes. Hand-written assignments win outright — including
+    /// an assignment with no media, which is how an operator says "leave this chapter clean" and
+    /// has that decision survive the next run. With no assignments at all the old round-robin
+    /// applies, bound to body chapters so media never lands on the hook or the close, where it
+    /// would talk over the two moments that carry the video.
+    /// </summary>
+    private static IEnumerable<Placement> ResolvePlacements(
+        JobManifest job,
+        IReadOnlyList<PlanChapter> chapters,
+        IReadOnlyList<string> supporting)
+    {
+        var assignments = job.Plan.InsertAssignments;
+        if (assignments.Count > 0)
+        {
+            foreach (var assignment in assignments.OrderBy(entry => entry.ChapterIndex))
+            {
+                if (assignment.ChapterIndex < 0 || assignment.ChapterIndex >= chapters.Count)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(assignment.Media))
+                {
+                    continue;
+                }
+
+                // An assignment names a file the operator chose; a file that has since moved is
+                // skipped rather than silently replaced with whatever else is in the folder.
+                var media = supporting.FirstOrDefault(candidate =>
+                    string.Equals(candidate, assignment.Media, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(
+                        Path.GetFileName(candidate),
+                        Path.GetFileName(assignment.Media),
+                        StringComparison.OrdinalIgnoreCase));
+
+                if (media is null)
+                {
+                    continue;
+                }
+
+                yield return new Placement(
+                    chapters[assignment.ChapterIndex],
+                    media,
+                    assignment.OffsetSeconds,
+                    assignment.DurationSeconds);
+            }
+
+            yield break;
+        }
+
+        var bodyChapters = chapters.Where(chapter => chapter.Role == "beat").ToList();
+        if (bodyChapters.Count == 0)
+        {
+            bodyChapters = chapters.Skip(1).Take(Math.Max(0, chapters.Count - 2)).ToList();
+        }
+
+        for (var index = 0; index < supporting.Count && index < bodyChapters.Count; index++)
+        {
+            yield return new Placement(bodyChapters[index], supporting[index], -1, 0);
+        }
     }
 
     /// <summary>

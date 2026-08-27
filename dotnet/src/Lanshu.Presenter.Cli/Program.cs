@@ -1,5 +1,6 @@
 using System.Globalization;
 using Lanshu.Presenter.Cli;
+using Lanshu.Presenter.Core.Branding;
 using Lanshu.Presenter.Core.Configuration;
 using Lanshu.Presenter.Core.Environment;
 using Lanshu.Presenter.Core.Jobs;
@@ -29,6 +30,8 @@ try
         "retake" => Retake(),
         "pilot" => await PilotAsync(),
         "lipsync" => await LipSyncAsync(),
+        "brand" => Brand(),
+        "broll" => BRoll(),
         "doctor" => await DoctorAsync(),
         "voices" => await VoicesAsync(),
         "jobs" => JobsList(),
@@ -101,11 +104,63 @@ async Task<int> InitAsync()
 
     var paths = new JobService().Create(request);
 
-    if (line.Flag("review-script"))
+    // Everything below is presentation the NewJobRequest does not carry. A brand kit is applied
+    // first so an explicit flag on the same command line still wins over the kit.
+    if (line.Flag("review-script")
+        || line.Has("brand")
+        || line.Has("caption-style")
+        || line.Has("intro")
+        || line.Has("outro")
+        || line.Flag("no-trim-silence")
+        || line.Flag("keep-fillers"))
     {
         var jobs = new JobService();
         var manifest = jobs.Load(paths);
-        manifest.Plan.ReviewScript = true;
+
+        if (line.Flag("review-script"))
+        {
+            manifest.Plan.ReviewScript = true;
+        }
+
+        if (line.Has("brand"))
+        {
+            var brand = line.Value("brand");
+            if (!new BrandKitService(store).Apply(brand ?? string.Empty, manifest.Creative))
+            {
+                Console.Error.WriteLine($"WARNING: no brand kit named '{brand}'; the job keeps its own look.");
+            }
+        }
+
+        if (line.Has("caption-style"))
+        {
+            manifest.Creative.CaptionStyle = line.Value("caption-style") ?? manifest.Creative.CaptionStyle;
+        }
+
+        if (line.Has("intro"))
+        {
+            manifest.Creative.Intro.Enabled = true;
+            manifest.Creative.Intro.Title = line.Value("intro") ?? string.Empty;
+            manifest.Creative.Intro.Subtitle = line.Value("intro-subtitle") ?? manifest.Creative.Intro.Subtitle;
+        }
+
+        if (line.Has("outro"))
+        {
+            manifest.Creative.Outro.Enabled = true;
+            manifest.Creative.Outro.Title = line.Value("outro") ?? string.Empty;
+            manifest.Creative.Outro.Subtitle = line.Value("outro-subtitle") ?? manifest.Creative.Outro.Subtitle;
+        }
+
+        if (line.Flag("no-trim-silence"))
+        {
+            manifest.Creative.TrimSilence = false;
+            manifest.Voice.SilenceTrimmed = false;
+        }
+
+        if (line.Flag("keep-fillers"))
+        {
+            manifest.Creative.TrimFillers = false;
+        }
+
         jobs.Save(paths, manifest);
     }
 
@@ -322,6 +377,173 @@ int Segments()
 
     Console.WriteLine();
     Console.WriteLine("Re-take one with:  lanshu retake --job-dir <dir> --index <n> [--say \"respelling\"]");
+    return 0;
+}
+
+int Brand()
+{
+    var service = new BrandKitService(store);
+
+    if (line.Has("delete"))
+    {
+        var name = line.Value("delete") ?? string.Empty;
+        Console.WriteLine(service.Delete(name)
+            ? $"Deleted the brand kit '{name}'."
+            : $"No brand kit named '{name}'.");
+        return service.Find(name) is null ? 0 : 2;
+    }
+
+    if (line.Has("save"))
+    {
+        var name = line.Value("save") ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Console.Error.WriteLine("--save needs a name for the kit.");
+            return 64;
+        }
+
+        // A kit captured from a real job is worth more than one typed from scratch: the job
+        // already holds a look someone looked at and accepted.
+        var kit = line.Has("job-dir") || line.Has("job")
+            ? BrandKitService.FromCreative(name, new JobService().Load(ResolvePaths()).Creative)
+            : new BrandKit { Name = name };
+
+        if (line.Has("accent")) kit.AccentColor = line.Value("accent") ?? kit.AccentColor;
+        if (line.Has("font")) kit.CaptionFont = line.Value("font") ?? kit.CaptionFont;
+        if (line.Has("caption-style")) kit.CaptionStyle = line.Value("caption-style") ?? kit.CaptionStyle;
+        if (line.Has("watermark")) kit.Watermark = line.Value("watermark") ?? kit.Watermark;
+        if (line.Has("intro")) { kit.Intro.Enabled = true; kit.Intro.Title = line.Value("intro") ?? string.Empty; }
+        if (line.Has("intro-subtitle")) kit.Intro.Subtitle = line.Value("intro-subtitle") ?? kit.Intro.Subtitle;
+        if (line.Has("outro")) { kit.Outro.Enabled = true; kit.Outro.Title = line.Value("outro") ?? string.Empty; }
+        if (line.Has("outro-subtitle")) kit.Outro.Subtitle = line.Value("outro-subtitle") ?? kit.Outro.Subtitle;
+        if (line.Has("logo")) { kit.Intro.LogoPath = line.Value("logo") ?? string.Empty; kit.Outro.LogoPath = kit.Intro.LogoPath; }
+
+        var replaced = service.Save(kit);
+        Console.WriteLine($"{(replaced ? "Updated" : "Saved")} the brand kit '{kit.Name}'.");
+        Console.WriteLine($"Use it with:  lanshu init --brand {kit.Name}");
+        return 0;
+    }
+
+    var kits = service.List();
+    if (kits.Count == 0)
+    {
+        Console.WriteLine("No brand kits yet.");
+        Console.WriteLine();
+        Console.WriteLine("Save the look of a job you liked:");
+        Console.WriteLine("  lanshu brand --save house --job-dir <dir>");
+        Console.WriteLine("Or start one from scratch:");
+        Console.WriteLine("  lanshu brand --save house --accent \"#F4C430\" --caption-style tiktok");
+        return 0;
+    }
+
+    Console.WriteLine($"{"NAME",-16}  {"ACCENT",-9}  {"CAPTIONS",-9}  CARDS");
+    foreach (var kit in kits)
+    {
+        var cards = (kit.Intro.Enabled ? "intro" : string.Empty)
+                    + (kit.Intro.Enabled && kit.Outro.Enabled ? "+" : string.Empty)
+                    + (kit.Outro.Enabled ? "outro" : string.Empty);
+        Console.WriteLine($"{kit.Name,-16}  {kit.AccentColor,-9}  {kit.CaptionStyle,-9}  {(cards.Length == 0 ? "-" : cards)}");
+    }
+
+    return 0;
+}
+
+int BRoll()
+{
+    var paths = ResolvePaths();
+    var jobs = new JobService();
+    var job = jobs.Load(paths);
+
+    if (job.Plan.Chapters.Count == 0)
+    {
+        Console.WriteLine("This job has no chapters yet, so there is nothing to assign media to.");
+        Console.WriteLine("Run it once — chapters are measured from the narration, not guessed.");
+        return 0;
+    }
+
+    if (line.Has("clear"))
+    {
+        var chapter = line.Integer("clear", -1);
+        job.Plan.InsertAssignments.RemoveAll(entry => entry.ChapterIndex == chapter);
+        // An explicit empty assignment is how "leave this chapter clean" survives the next run;
+        // removing the entry entirely would hand the chapter back to round-robin.
+        job.Plan.InsertAssignments.Add(new InsertAssignment { ChapterIndex = chapter, Media = string.Empty });
+        jobs.Save(paths, job);
+        Console.WriteLine($"Chapter {chapter} will stay clean.");
+        return 0;
+    }
+
+    if (line.Has("set"))
+    {
+        var pair = line.Value("set") ?? string.Empty;
+        var split = pair.IndexOf('=');
+        if (split <= 0)
+        {
+            Console.Error.WriteLine("--set wants <chapter>=<file>, for example --set 2=diagram.png");
+            return 64;
+        }
+
+        if (!int.TryParse(pair[..split], out var chapter)
+            || chapter < 0
+            || chapter >= job.Plan.Chapters.Count)
+        {
+            Console.Error.WriteLine($"chapter must be between 0 and {job.Plan.Chapters.Count - 1}");
+            return 64;
+        }
+
+        var media = pair[(split + 1)..].Trim();
+        var known = job.Input.SupportingMedia.FirstOrDefault(candidate =>
+            string.Equals(candidate, media, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(Path.GetFileName(candidate), media, StringComparison.OrdinalIgnoreCase));
+
+        if (known is null)
+        {
+            Console.Error.WriteLine($"'{media}' is not one of this job's supporting files.");
+            Console.Error.WriteLine("Add it with 'lanshu init --media <file>' first.");
+            return 64;
+        }
+
+        job.Plan.InsertAssignments.RemoveAll(entry => entry.ChapterIndex == chapter);
+        job.Plan.InsertAssignments.Add(new InsertAssignment
+        {
+            ChapterIndex = chapter,
+            Media = known,
+            OffsetSeconds = line.Has("at") ? line.Number("at", -1) : -1,
+            DurationSeconds = line.Number("for", 0),
+        });
+
+        jobs.Save(paths, job);
+        Console.WriteLine($"Chapter {chapter} will show {Path.GetFileName(known)}.");
+        Console.WriteLine("Run the job again to rebuild the timeline.");
+        return 0;
+    }
+
+    var assignments = job.Plan.InsertAssignments.ToDictionary(entry => entry.ChapterIndex);
+    Console.WriteLine($"{"#",3}  {"START",8}  {"LENGTH",7}  {"CHAPTER",-26}  MEDIA");
+    foreach (var chapter in job.Plan.Chapters.OrderBy(chapter => chapter.Index))
+    {
+        assignments.TryGetValue(chapter.Index, out var assignment);
+        var media = assignment is null
+            ? (string.IsNullOrWhiteSpace(chapter.SupportingMedia)
+                ? "-"
+                : Path.GetFileName(chapter.SupportingMedia) + "  (auto)")
+            : (string.IsNullOrWhiteSpace(assignment.Media)
+                ? "(kept clean)"
+                : Path.GetFileName(assignment.Media));
+
+        Console.WriteLine(
+            $"{chapter.Index,3}  {chapter.StartSeconds,8:0.00}  {chapter.DurationSeconds,7:0.00}  "
+            + $"{Truncate(chapter.Title, 26),-26}  {media}");
+    }
+
+    Console.WriteLine();
+    if (job.Plan.InsertAssignments.Count == 0)
+    {
+        Console.WriteLine("Nothing is assigned by hand, so media is placed round-robin over the body chapters.");
+    }
+
+    Console.WriteLine("Assign one with:  lanshu broll --set 2=diagram.png [--at 0.5] [--for 3]");
+    Console.WriteLine("Keep one clean:   lanshu broll --clear 2");
     return 0;
 }
 
@@ -717,6 +939,8 @@ int Help(int exitCode)
           retake        Re-speak one segment, optionally with a pronunciation respelling
           pilot         Show the pilot's details and lay its frames out as a contact sheet
           lipsync       Configure and smoke-test a locally installed lip-sync tool
+          brand         Save, list and delete reusable brand kits
+          broll         Choose which supporting media goes on which chapter
           doctor        Report the environment; --install downloads a portable FFmpeg
           voices        List the voices available from every reachable speech engine
           jobs          List jobs in the workspace

@@ -459,11 +459,18 @@ public sealed class PresenterVideoPipeline
             Report("rendered", "Composition rendered", 0.84);
 
             // 7. Delivery and QA -------------------------------------------------------
+            // Cards are joined onto the rendered program rather than cut into the timeline, so
+            // every caption, callout and punch-in keeps the position the narration gave it. The
+            // only thing that has to learn about the offset is the chapter list.
+            var cards = await new CardService(ffmpeg, Log)
+                .AttachAsync(paths, job, renderPath, cancellationToken)
+                .ConfigureAwait(false);
+
             Report("verified", "Finalizing master and share encodes", 0.86);
             var stem = ResolveStem(options, job);
             var delivery = await new FinalizeDeliveryService(ffmpeg, Log)
                 .RunAsync(
-                    renderPath,
+                    cards.Path,
                     paths.Outputs,
                     stem,
                     new FinalizeDeliveryService.Options
@@ -481,7 +488,7 @@ public sealed class PresenterVideoPipeline
 
             Report("verified", "Running acceptance gates", 0.94);
             var qa = await new QaService(ffmpeg)
-                .RunAsync(paths, job, timeline, delivery, asrReport, plate, cancellationToken)
+                .RunAsync(paths, job, timeline, delivery, asrReport, plate, cancellationToken, cards.TotalSeconds)
                 .ConfigureAwait(false);
 
             var qaMarkdown = QaService.ToMarkdown(qa, delivery);
@@ -531,7 +538,8 @@ public sealed class PresenterVideoPipeline
                         paths, job, script,
                         Path.Combine(paths.Outputs, delivery.CoverFrame),
                         stem, cancellationToken,
-                        cleanSourceVideo: plate.Path)
+                        cleanSourceVideo: plate.Path,
+                        programOffsetSeconds: cards.LeadSeconds)
                     .ConfigureAwait(false);
 
                 job.Artifacts.Thumbnails = kit.Thumbnails.Select(paths.Relative).ToList();
@@ -758,6 +766,7 @@ public sealed class PresenterVideoPipeline
             Watermark = job.Creative.Watermark,
             CaptionsEnabled = job.Creative.CaptionsEnabled,
             CalloutsEnabled = job.Creative.KeywordCalloutsEnabled,
+            CaptionStyle = job.Creative.CaptionStyle,
             Cjk = TextUtil.IsCjk(script.Narration),
         };
 
@@ -966,6 +975,7 @@ public sealed class PresenterVideoPipeline
             Watermark = job.Creative.Watermark,
             CaptionsEnabled = job.Creative.CaptionsEnabled,
             CalloutsEnabled = job.Creative.KeywordCalloutsEnabled,
+            CaptionStyle = job.Creative.CaptionStyle,
             Cjk = TextUtil.IsCjk(script.Narration),
         }));
 

@@ -62,7 +62,8 @@ public sealed class QaService
         DeliveryReport delivery,
         AsrVerificationReport asr,
         PresenterPlate plate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        double cardSeconds = 0)
     {
         var report = new QaReport();
         var creative = job.Creative;
@@ -125,13 +126,19 @@ public sealed class QaService
                     : $"{audio.CodecName} {audio.SampleRate}Hz {audio.Channels}ch",
             });
 
-            var expected = timeline.DurationSeconds;
+            // Title and end cards are joined onto the program after the edit, so the delivered
+            // file is legitimately longer than the narration. The gate still measures the edit:
+            // it adds the card length it was told about rather than widening its tolerance.
+            var expected = timeline.DurationSeconds + cardSeconds;
             var drift = Math.Abs(probe.DurationSeconds - expected);
+            var against = cardSeconds > 0.001
+                ? $"a {timeline.DurationSeconds:0.000}s narration timeline plus {cardSeconds:0.000}s of cards"
+                : $"a {timeline.DurationSeconds:0.000}s narration timeline";
             report.Gates.Add(new GateResult
             {
                 Name = "duration_matches_narration",
                 Passed = drift <= 0.5,
-                Detail = $"{probe.DurationSeconds:0.000}s against a {expected:0.000}s narration timeline (drift {drift:0.000}s)",
+                Detail = $"{probe.DurationSeconds:0.000}s against {against} (drift {drift:0.000}s)",
             });
 
             // The delivered program must land on target loudness; measure the file, not the sections.
