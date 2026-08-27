@@ -178,6 +178,27 @@ WITH API KEYS (Settings tab)
   Keys are stored in %USERPROFILE%\.lanshu-presenter\secrets.json and are
   never written into a job folder, a QA report, or an archived request.
 
+IN CHINESE
+
+  There is a language selector at the top right of the studio. Pick 中文 and
+  the whole interface switches; it remembers your choice next time.
+
+CHECKING FOR A NEWER VERSION
+
+  "lanshu update" tells you whether a newer release exists. It never
+  downloads or replaces anything - swapping the program while you are using
+  it would be a surprise, not a help.
+
+IF SOMETHING GOES WRONG
+
+  "lanshu diagnostics" writes a zip you can attach to a bug report: your
+  version, the ffmpeg it found, your settings with every API key replaced by
+  [redacted], and the names (not values) of the keys you have set. Add
+  --job-dir to include one job's reports and the end of its log.
+
+  Open MANIFEST.txt inside the zip first. It lists exactly what is in there
+  and what was deliberately left out. It is your machine, not ours.
+
 WINDOWS SMARTSCREEN
 
   The executable is not code-signed, so SmartScreen may warn on first run.

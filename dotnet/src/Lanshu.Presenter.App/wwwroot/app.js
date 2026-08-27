@@ -560,6 +560,7 @@ async function showJob(directory) {
       openScriptEditor(directory);
     });
     $('editTimeline').addEventListener('click', () => openTimelineEditor(directory));
+    retranslate();
     $('revealJob').addEventListener('click', () =>
       api('/api/reveal', { method: 'POST', body: JSON.stringify({ path: directory }) }).catch((error) => toast(error.message)));
   } catch (error) {
@@ -656,6 +657,9 @@ async function loadSettings() {
   $('writerHint').textContent = data.knownSecrets.some((secret) => secret.configured && /ANTHROPIC|OPENAI/.test(secret.key))
     ? 'A model is configured, so the script will be fully drafted from your topic.'
     : 'No model key is set, so the built-in outline writer will build the structure and you edit the narration. Add a key in Settings for a fully drafted script.';
+
+  // This line is written after the settings load, so it has missed the initial pass.
+  retranslate();
 }
 
 $('saveSettings').addEventListener('click', async () => {
@@ -893,6 +897,7 @@ async function openTimelineEditor(directory) {
 
   drawTimeline();
   renderTimelineRows();
+  retranslate();
 }
 
 /** Where each lane sits vertically, so hit-testing and drawing agree by construction. */
@@ -1214,3 +1219,270 @@ async function saveTimeline() {
     toast(error.message);
   }
 }
+
+/* --------------------------------------------------------------------- i18n */
+
+/*
+ * The repository and the skill this app was ported from are Chinese-first, so the studio being
+ * English-only was a gap rather than a preference.
+ *
+ * Translation is by exact source string rather than by a key attribute on every element. That is
+ * the right trade for retrofitting: it needs no change to the markup, it reaches text the
+ * JavaScript injects at runtime, and — the part that matters — anything not in the table is left
+ * exactly as written. Provider names like Anthropic, NVENC and FFmpeg are absent on purpose and so
+ * survive untouched, which is what you want from a translation table you did not hand-audit.
+ */
+const ZH = {
+  // Shell and navigation
+  'Create': '新建',
+  'Jobs': '任务',
+  'Settings': '设置',
+  'Environment': '运行环境',
+  'Refresh': '刷新',
+  'Re-check': '重新检测',
+  'Cancel': '取消',
+  'Close': '关闭',
+  'Save settings': '保存设置',
+
+  // Create tab
+  'Write it from a topic': '根据主题生成',
+  'I have a script': '我已有脚本',
+  'Topic': '主题',
+  'Script': '脚本',
+  'Language': '语言',
+  'Auto': '自动',
+  'Target seconds': '目标时长（秒）',
+  'Aspect': '画幅比例',
+  'Frame rate': '帧率',
+  'Choose an image': '选择图片',
+  'Optional authorized voice sample': '可选：已授权的声音样本',
+  'Optional music bed': '可选：背景音乐',
+  'Add B-roll, screenshots, or charts': '添加空镜、截图或图表',
+  'Create and render': '创建并渲染',
+  'Create job only': '仅创建任务',
+  'Fast preview': '快速预览',
+  'Closing action': '结尾行动号召',
+  'Watermark': '水印',
+  'Accent': '强调色',
+  'Caption font': '字幕字体',
+  'Visual treatment': '视觉风格',
+  'Manual review — required before any render': '人工检查 — 渲染前必须完成',
+  'Voice sample review': '声音样本检查',
+  'Presenter track': '主讲画面',
+  'Motion plate': '动态画面',
+  'Rendering': '渲染中',
+
+  // Settings
+  'Paths': '路径',
+  'Workspace': '工作目录',
+  'Credentials': '凭据',
+  'Credential name': '凭据名称',
+  'Name for the record': '记录用名称',
+  'Provider': '服务商',
+  'Model': '模型',
+  'Engine': '引擎',
+  'Rate': '语速',
+  'Voice': '语音',
+  'Script writer': '脚本生成',
+  'Transcription': '语音转写',
+  'Video encoder': '视频编码器',
+  'Preview short edge': '预览短边像素',
+  'Mode': '模式',
+  'Background': '背景',
+  'Default': '默认',
+  'Scheme': '认证方式',
+  'Auth header': '认证请求头',
+  'Submit URL': '提交地址',
+  'Status URL template': '状态查询地址模板',
+  'Request body template': '请求体模板',
+  'Task id path': '任务 ID 路径',
+  'Status path': '状态字段路径',
+  'Result URL path': '结果地址路径',
+  'Known price per second': '已知每秒价格',
+  'Price evidence date': '价格依据日期',
+  'Aligner only': '仅使用对齐器',
+  'Built-in outline writer': '内置大纲生成',
+  'Local motion plate only': '仅本地动态画面',
+  'Talking-head provider only': '仅使用数字人服务',
+  'Auto — use a provider when configured': '自动 — 配置后使用服务商',
+  'Auto — hardware when it works': '自动 — 硬件可用时启用',
+  'Always fill the frame': '始终填满画面',
+  'Always contain the image': '始终完整显示图片',
+
+  // Environment
+  'FFmpeg': 'FFmpeg',
+  'Install FFmpeg': '安装 FFmpeg',
+
+  // Timeline editor
+  'Timeline': '时间线',
+  'Chapters': '章节',
+  'Presenter': '主讲',
+  'B-roll': '空镜',
+  'Shots': '镜头',
+  'Emphasis': '强调',
+  'Save': '保存',
+  'Reset': '重置',
+  'Edit script': '编辑脚本',
+  'Open folder': '打开文件夹',
+  'Run': '运行',
+  'Re-render': '重新渲染',
+  'automatic': '自动',
+  'set by hand': '手动指定',
+  'Drag a B-roll block to move it, or its right edge to change how long it holds.':
+    '拖动空镜色块可移动位置，拖动右边缘可调整持续时间。',
+  'Saved. Run the job again to rebuild the timeline with these placements.':
+    '已保存。重新运行任务即可按此重建时间线。',
+  'This job has not been rendered yet. Chapters are measured from the spoken\n      narration, so there is nothing to place media against until it has run once.':
+    '该任务尚未渲染。章节来自实际语音的测量结果，需先运行一次才能安排素材。',
+
+  // Section headings
+  '1. What should the presenter say?': '1. 主讲要说什么？',
+  '2. Presenter image': '2. 主讲图片',
+  '3. Voice': '3. 语音',
+  '4. Format': '4. 输出格式',
+  '5. Supporting media': '5. 辅助素材',
+  'OPTIONAL': '可选',
+
+  // Manual review — the gate that matters most, so it is translated in full.
+  'I looked at this image myself': '我已亲自查看这张图片',
+  'It contains one clear adult face': '图中有一张清晰的成年人面孔',
+  'No unwanted text, logos, or watermarks': '没有多余的文字、标识或水印',
+  'I have the rights to use this image': '我拥有使用这张图片的权利',
+  'The person shown is an adult': '图中人物为成年人',
+  'I listened to this sample': '我已听过这段样本',
+  'It has one clear speaker': '样本中只有一位清晰的说话人',
+  'I am authorized to clone this voice': '我已获授权克隆该声音',
+
+  // Options and toggles
+  'Burn in captions': '烧录字幕',
+  'Keyword callouts': '关键词标注',
+  'Review the script before it is spoken': '朗读前先审阅脚本',
+  'Always review the script before narration is synthesized': '合成旁白前始终审阅脚本',
+  'Enable this provider': '启用该服务商',
+  'Zoom over the take (%)': '画面推进幅度（%）',
+  'Sway (px)': '晃动幅度（像素）',
+  'Auto / blurred backdrop': '自动 / 模糊背景',
+  'Light grade': '轻度调色',
+  'Vignette': '暗角',
+  'Software (libx264)': '软件编码（libx264）',
+  'Local whisper.cpp': '本地 whisper.cpp',
+  'Talking-head provider (any submit-poll-download API)': '数字人服务（任意提交-轮询-下载接口）',
+  'Checking…': '检测中…',
+  'Engine default': '引擎默认',
+  'optional': '可选',
+  'Starting…': '启动中…',
+
+  // Explanatory copy — the paragraphs that tell people what the app will and will not do.
+  'One authorized image with one clear adult face. It never leaves this machine unless you configure a remote provider and approve the upload.':
+    '一张已授权的图片，包含一张清晰的成年人面孔。除非你配置了远程服务商并批准上传，否则它不会离开本机。',
+  'Optional. Without it, caption timings come from the built-in aligner, which knows each segment\'s exact text and measured duration.':
+    '可选。不使用时，字幕时间来自内置对齐器 —— 它已知每段的确切文本和实测时长。',
+  'Stored in a local file readable only by your user account, never in a job folder or a report. Environment variables of the same name take priority.':
+    '保存在仅你的用户账户可读的本地文件中，绝不写入任务文件夹或报告。同名环境变量优先。',
+  'The motion plate animates your still image. It is not a lip-synced talking head, and every job record says which one produced the track.':
+    '动态画面基于你的静态图片生成动画。它不是口型同步的数字人；每条任务记录都会写明画面由哪一种方式产生。',
+  'A model is configured, so the script will be fully drafted from your topic.':
+    '已配置模型，脚本将根据你的主题完整生成。',
+  'No model key is set, so the built-in outline writer will build the structure and you edit the narration. Add a key in Settings for a fully drafted script.':
+    '未设置模型密钥，将由内置大纲生成器搭建结构，旁白由你编辑。在设置中添加密钥即可获得完整脚本。',
+
+  // Explanatory copy
+  'Used only where it proves or clarifies a spoken point. Assigned to body beats, never the hook or the close.':
+    '仅在能佐证或阐明所讲内容时使用。只分配给正文段落，不用于开场和结尾。',
+  'Select a job to see its state, artifacts, and run log.': '选择一个任务以查看其状态、产物和运行日志。',
+  'Hardware encoders are probed before use and fall back to software automatically if they fail mid-render.':
+    '硬件编码器会先行探测，若渲染中途失败将自动回退到软件编码。',
+  'Placeholders:': '占位符：',
+
+  // Placeholders
+  'Explain context engineering in one minute': '用一分钟讲清上下文工程',
+  'Paste the narration. Headings become chapters; everything else is spoken.':
+    '粘贴旁白。标题会成为章节，其余内容将被朗读。',
+  'Leave blank for no promo copy': '留空则不添加推广文案',
+  'leave blank to auto-detect': '留空则自动检测',
+  'leave blank if unknown': '未知则留空',
+};
+
+const I18N = { en: {}, zh: ZH };
+
+function translationsFor(language) {
+  return I18N[language] || I18N.en;
+}
+
+/**
+ * Walks the document translating text nodes and the attributes users actually read.
+ * The original English is kept on the node so switching back is lossless rather than a
+ * second translation in the opposite direction.
+ */
+function applyLanguage(language) {
+  const table = translationsFor(language);
+  document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  nodes.forEach((node) => {
+    if (node.parentElement && node.parentElement.closest('script, style, canvas')) return;
+
+    // Both the trimmed source string and the whole original value are kept. Rebuilding from the
+    // original every time is what makes switching back lossless: replacing the *current* text
+    // would look for English that is no longer there once the node has been translated once.
+    if (node.__en === undefined) {
+      const trimmed = node.nodeValue.trim();
+      if (!trimmed) return;
+      node.__en = trimmed;
+      node.__enFull = node.nodeValue;
+    }
+
+    const replacement = table[node.__en];
+    // Rebuild from the original so the surrounding whitespace survives untouched.
+    node.nodeValue = node.__enFull.replace(node.__en, replacement || node.__en);
+  });
+
+  document.querySelectorAll('[placeholder], [title]').forEach((element) => {
+    ['placeholder', 'title'].forEach((attribute) => {
+      const value = element.getAttribute(attribute);
+      if (value === null) return;
+      const key = `__en_${attribute}`;
+      if (element[key] === undefined) element[key] = value;
+      element.setAttribute(attribute, table[element[key]] || element[key]);
+    });
+  });
+}
+
+function initLanguage() {
+  const select = $('uiLanguage');
+  if (!select) return;
+
+  let stored = null;
+  try {
+    stored = localStorage.getItem('lanshu_ui_language');
+  } catch (error) {
+    // A browser with site data blocked still gets a working studio, just not a remembered choice.
+    stored = null;
+  }
+
+  // Precedence matters here: a stored choice of 'en' must win over a zh-CN browser.
+  const detected = (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  select.value = stored || detected;
+  applyLanguage(select.value);
+
+  select.addEventListener('change', () => {
+    applyLanguage(select.value);
+    try {
+      localStorage.setItem('lanshu_ui_language', select.value);
+    } catch (error) {
+      /* remembering the choice is a convenience, not a requirement */
+    }
+  });
+}
+
+// Re-translate after the app injects markup, so dynamic panels are not left in English.
+const untranslatedRender = window.requestAnimationFrame.bind(window);
+function retranslate() {
+  const select = $('uiLanguage');
+  if (select && select.value !== 'en') untranslatedRender(() => applyLanguage(select.value));
+}
+
+initLanguage();

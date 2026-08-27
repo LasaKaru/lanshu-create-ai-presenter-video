@@ -54,6 +54,22 @@ public sealed class AppSettings
     [JsonPropertyName("publish")]
     public PublishSettings Publish { get; set; } = new();
 
+    /// <summary>Ask GitHub whether a newer release exists. Notification only; nothing downloads.</summary>
+    [JsonPropertyName("check_for_updates")]
+    public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>
+    /// Where to ask. Configurable because this is open source: a fork's users should be told
+    /// about the fork's releases, not this repository's.
+    /// </summary>
+    [JsonPropertyName("update_feed_url")]
+    public string UpdateFeedUrl { get; set; } =
+        "https://api.github.com/repos/LasaKaru/lanshu-create-ai-presenter-video/releases/latest";
+
+    /// <summary>UI language for the studio: auto | en | zh.</summary>
+    [JsonPropertyName("ui_language")]
+    public string UiLanguage { get; set; } = "auto";
+
     [JsonIgnore]
     public string ResolvedWorkspace =>
         string.IsNullOrWhiteSpace(Workspace) ? ToolLocator.DefaultWorkspace : FileSystemUtil.ExpandPath(Workspace);

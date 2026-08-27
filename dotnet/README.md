@@ -398,6 +398,50 @@ scraping a console banner. Binding beyond loopback with `--host` is refused unle
 token of your own — the render and file APIs are not something to expose on a generated secret
 the operator has never seen.
 
+## Chinese interface
+
+The repository and the skill this was ported from are Chinese-first, so an English-only studio was
+a gap rather than a preference. A selector in the header switches the whole interface between
+English and 中文, and the choice is remembered.
+
+Translation is by exact source string rather than by a key on every element. That is the right
+trade for a retrofit: no markup changes, it reaches text the JavaScript injects at runtime, and
+anything not in the table is left exactly as written — so `Anthropic`, `NVENC` and `FFmpeg` stay
+themselves without anyone having to remember to exclude them. Switching back is lossless because
+every node keeps its original text rather than being translated a second time in reverse.
+
+## Update checks
+
+`lanshu update` asks the releases feed whether a newer version exists. It never blocks anything:
+its own short timeout, and every failure is an answer rather than an exception. It is only ever a
+notification — nothing is downloaded and nothing is replaced, because silently swapping an
+executable someone is running is a surprise, not a convenience.
+
+Versions compare numerically, so 1.10.0 is correctly newer than 1.9.0. Turn it off with
+`check_for_updates`, or point `update_feed_url` at your own fork's releases.
+
+## Diagnostics
+
+`lanshu diagnostics` writes a zip to attach to a bug report: version and OS, the resolved ffmpeg
+and its version, redacted settings, the names of the credentials that are set, and — with
+`--job-dir` — one job's manifest, QA reports and the tail of its run log.
+
+The redaction is why this is code rather than an instruction to zip a folder. Settings sit next to
+secrets and a user trying to be helpful will attach all of it to a public issue, so every
+credential-shaped value is replaced before it is written. Matching is deliberate in both
+directions: `password` and `credential` count wherever they appear, while `key` and `token` count
+only as a whole name segment, because redacting `max_output_tokens` hides a number a maintainer
+wants and protects nothing. Rendered video and audio are left out; a stack trace does not need
+them. `MANIFEST.txt` inside the zip says what was taken and what was not.
+
+## Code signing
+
+The release workflow signs the Windows build when `WINDOWS_CERT_BASE64` and
+`WINDOWS_CERT_PASSWORD` are set as repository secrets, and ships an unsigned build that says so
+when they are not — a release should not fail for want of something only a purchase can provide.
+The certificate is not in this repository and cannot be: removing the SmartScreen warning requires
+buying one.
+
 ## Optional providers
 
 | Capability | Providers |
@@ -469,7 +513,7 @@ The studio needs `ffmpeg` and `ffprobe`. If they are not on the machine, open th
 
 ```bash
 cd dotnet
-dotnet test LanshuPresenter.sln          # 210 tests
+dotnet test LanshuPresenter.sln          # 241 tests
 ./build/publish.sh win-x64               # or linux-x64, osx-arm64, ...
 ```
 
@@ -507,7 +551,8 @@ contact sheet so it can be reviewed without a video player; `--open` launches it
 player.
 
 Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `lipsync`,
-`brand`, `broll`, `publish`, `batch`, `voices`, `jobs`, `config`, `version`.
+`brand`, `broll`, `publish`, `batch`, `diagnostics`, `update`, `voices`, `jobs`,
+`config`, `version`.
 `lanshu` with no arguments prints the full reference.
 
 `lanshu run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is

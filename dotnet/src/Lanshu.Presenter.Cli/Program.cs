@@ -36,6 +36,8 @@ try
         "broll" => BRoll(),
         "publish" => await PublishAsync(),
         "batch" => await BatchAsync(),
+        "diagnostics" => await DiagnosticsAsync(),
+        "update" => await UpdateAsync(),
         "doctor" => await DoctorAsync(),
         "voices" => await VoicesAsync(),
         "jobs" => JobsList(),
@@ -395,6 +397,55 @@ int Segments()
 
     Console.WriteLine();
     Console.WriteLine("Re-take one with:  lanshu retake --job-dir <dir> --index <n> [--say \"respelling\"]");
+    return 0;
+}
+
+async Task<int> DiagnosticsAsync()
+{
+    var output = line.Value("out")
+                 ?? Path.Combine(
+                     System.Environment.CurrentDirectory,
+                     $"lanshu-diagnostics-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.zip");
+
+    // Including a job is opt-in: its record is the part most likely to carry something the
+    // operator would not want to hand out, even redacted.
+    var jobDirectory = line.Has("job-dir") || line.Has("job")
+        ? ResolvePaths().Root
+        : null;
+
+    var result = await DiagnosticsBundle.BuildAsync(store, FileSystemUtil.ExpandPath(output), jobDirectory);
+
+    Console.WriteLine($"Wrote {result.Path} ({result.Bytes / 1024} KB)");
+    Console.WriteLine();
+    foreach (var entry in result.Contents)
+    {
+        Console.WriteLine("  " + entry);
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("API keys and tokens are replaced with [redacted]; only their names are listed.");
+    Console.WriteLine("Read MANIFEST.txt inside the zip before attaching it to a public issue.");
+    return 0;
+}
+
+async Task<int> UpdateAsync()
+{
+    var status = await new UpdateChecker(store, httpClient).CheckAsync();
+
+    Console.WriteLine($"Installed: {status.CurrentVersion}");
+
+    if (!status.Checked)
+    {
+        Console.WriteLine($"Not checked: {status.Detail}");
+        return 0;
+    }
+
+    Console.WriteLine($"Latest   : {status.LatestVersion}");
+    Console.WriteLine();
+    Console.WriteLine(status.UpdateAvailable ? $"An update is available. {status.ReleaseUrl}" : status.Detail);
+
+    // Nothing is downloaded and nothing is replaced; swapping a running executable is a surprise,
+    // not a convenience.
     return 0;
 }
 
@@ -1229,6 +1280,8 @@ int Help(int exitCode)
           broll         Choose which supporting media goes on which chapter
           publish       Upload a finished video, behind an explicit approval
           batch         Make every video in a CSV, one at a time, resumably
+          diagnostics   Zip logs, probes and redacted settings for a bug report
+          update        Check whether a newer release exists
           doctor        Report the environment; --install downloads a portable FFmpeg
           voices        List the voices available from every reachable speech engine
           jobs          List jobs in the workspace
