@@ -3,14 +3,16 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Lanshu.Presenter.Cli</RootNamespace>
-    <AssemblyName>lanshu</AssemblyName>
+    <AssemblyName>hela</AssemblyName>
     <RollForward>Major</RollForward>
+    <!-- The brand mark, so the download is recognisable in Explorer and the taskbar. -->
+    <ApplicationIcon>../../build/appicon.ico</ApplicationIcon>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>embedded</DebugType>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <AssemblyTitle>Lanshu Presenter CLI</AssemblyTitle>
+    <AssemblyTitle>HelaPresenter CLI</AssemblyTitle>
   </PropertyGroup>
 
   <ItemGroup>

@@ -166,3 +166,42 @@ public class DiagnosticsRedactionTests
         Assert.Contains("could not be read", text);
     }
 }
+
+public class DataDirectoryTests : IDisposable
+{
+    private readonly string _home = Path.Combine(
+        Path.GetTempPath(), $"hela-home-{Guid.NewGuid():N}");
+
+    public DataDirectoryTests() => Directory.CreateDirectory(_home);
+
+    public void Dispose() => Directory.Delete(_home, recursive: true);
+
+    private string Current => Path.Combine(_home, ".helapresenter");
+
+    private string Legacy => Path.Combine(_home, ".lanshu-presenter");
+
+    [Fact]
+    public void AFreshMachineGetsTheCurrentFolder()
+    {
+        Assert.Equal(Current, ToolLocator.ResolveDataDirectory(_home));
+    }
+
+    [Fact]
+    public void AMachineFromBeforeTheRenameKeepsUsingWhatItAlreadyHas()
+    {
+        Directory.CreateDirectory(Legacy);
+
+        // Someone with saved keys, a downloaded FFmpeg and a year of jobs under the old name must
+        // not open the new build to an empty workspace.
+        Assert.Equal(Legacy, ToolLocator.ResolveDataDirectory(_home));
+    }
+
+    [Fact]
+    public void OnceTheCurrentFolderExistsItWins()
+    {
+        Directory.CreateDirectory(Legacy);
+        Directory.CreateDirectory(Current);
+
+        Assert.Equal(Current, ToolLocator.ResolveDataDirectory(_home));
+    }
+}

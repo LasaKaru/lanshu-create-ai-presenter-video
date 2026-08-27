@@ -3,8 +3,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Lanshu.Presenter.App</RootNamespace>
-    <AssemblyName>LanshuPresenterStudio</AssemblyName>
+    <AssemblyName>HelaPresenter</AssemblyName>
     <RollForward>Major</RollForward>
+    <!-- The brand mark, so the download is recognisable in Explorer and the taskbar. -->
+    <ApplicationIcon>../../build/appicon.ico</ApplicationIcon>
     <!-- The UI ships inside the executable so a single downloaded file is enough to run. -->
     <EnableDefaultContentItems>false</EnableDefaultContentItems>
     <!-- One downloadable file: the runtime, the pipeline and the UI all travel inside the exe. -->
@@ -14,7 +16,7 @@
     <PublishTrimmed>false</PublishTrimmed>
     <DebugType>embedded</DebugType>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <AssemblyTitle>Lanshu AI Presenter Studio</AssemblyTitle>
+    <AssemblyTitle>HelaPresenter</AssemblyTitle>
     <!-- Not hosted under IIS; the published folder should contain only the executable. -->
     <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
   </PropertyGroup>

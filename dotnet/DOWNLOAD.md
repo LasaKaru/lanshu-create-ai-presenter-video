@@ -1,22 +1,22 @@
-Lanshu AI Presenter Studio
-==========================
+HelaPresenter
+=============
 
 WHAT IS IN THIS FOLDER
 
-  LanshuPresenterStudio.exe   The studio. Double-click it.
-  lanshu.exe                  The same pipeline as a command-line tool.
+  HelaPresenter.exe   The studio. Double-click it.
+  hela.exe            The same pipeline as a command-line tool.
 
 Both are self-contained: no .NET runtime, no installer, nothing to set up.
 
 FIRST RUN
 
-  1. Double-click LanshuPresenterStudio.exe.
+  1. Double-click HelaPresenter.exe.
      A console window opens and your browser opens the studio.
      Keep the console window open while you work. Close it to stop.
 
   2. Open the Environment tab and press "Install FFmpeg" if it reports
      FFmpeg as missing. It downloads a portable build into
-     %USERPROFILE%\.lanshu-presenter\tools and nothing is installed
+     %USERPROFILE%\.helapresenter\tools and nothing is installed
      system wide.
 
   3. Go to Create, give it a topic or paste a script, choose a presenter
@@ -32,7 +32,7 @@ WHAT YOU GET
 
   A master MP4, a smaller share copy, a cover frame, a nine-frame contact
   sheet, an .srt caption file, and a QA report, all under
-  %USERPROFILE%\.lanshu-presenter\jobs\<job>\outputs.
+  %USERPROFILE%\.helapresenter\jobs\<job>\outputs.
 
 SPEED
 
@@ -66,9 +66,9 @@ REAL LIP-SYNC
   in Settings; the presenter's mouth then follows the narration. Nothing is
   downloaded for you - those tools are large and carry their own licences.
 
-  From a command prompt, "lanshu lipsync --list" shows the tools it already
-  knows the command line for, "lanshu lipsync --use wav2lip --dir <folder>"
-  fills that command line in, and "lanshu lipsync --test" proves the tool
+  From a command prompt, "hela lipsync --list" shows the tools it already
+  knows the command line for, "hela lipsync --use wav2lip --dir <folder>"
+  fills that command line in, and "hela lipsync --test" proves the tool
   really runs on a two-second test clip before a real job depends on it.
 
 CHANGING THE BACKGROUND
@@ -156,7 +156,7 @@ MAKING A LOT OF THEM AT ONCE
 
   Put a list of topics in a spreadsheet, save it as CSV, and run
 
-    lanshu batch --csv queue.csv --presenter-image face.png
+    hela batch --csv queue.csv --presenter-image face.png
 
   It makes them one at a time and remembers what it finished. If it stops
   overnight - a provider goes down, the machine reboots - run the same
@@ -164,7 +164,7 @@ MAKING A LOT OF THEM AT ONCE
 
 RUNNING IT WITHOUT THE WINDOW
 
-  LanshuPresenterStudio --headless runs the same thing with no browser and
+  HelaPresenter --headless runs the same thing with no browser and
   no console banner, printing one line of JSON with the address and token
   so a script can drive it.
 
@@ -175,7 +175,7 @@ WITH API KEYS (Settings tab)
   OpenAI or whisper.cpp   measured word timings for captions
   Any talking-head API   a real lip-synced presenter
 
-  Keys are stored in %USERPROFILE%\.lanshu-presenter\secrets.json and are
+  Keys are stored in %USERPROFILE%\.helapresenter\secrets.json and are
   never written into a job folder, a QA report, or an archived request.
 
 IN CHINESE
@@ -185,13 +185,13 @@ IN CHINESE
 
 CHECKING FOR A NEWER VERSION
 
-  "lanshu update" tells you whether a newer release exists. It never
+  "hela update" tells you whether a newer release exists. It never
   downloads or replaces anything - swapping the program while you are using
   it would be a surprise, not a help.
 
 IF SOMETHING GOES WRONG
 
-  "lanshu diagnostics" writes a zip you can attach to a bug report: your
+  "hela diagnostics" writes a zip you can attach to a bug report: your
   version, the ffmpeg it found, your settings with every API key replaced by
   [redacted], and the names (not values) of the keys you have set. Add
   --job-dir to include one job's reports and the end of its log.
@@ -199,9 +199,18 @@ IF SOMETHING GOES WRONG
   Open MANIFEST.txt inside the zip first. It lists exactly what is in there
   and what was deliberately left out. It is your machine, not ours.
 
+UPGRADING FROM A BUILD NAMED LANSHU
+
+  The program was renamed, and so was the folder it keeps things in:
+  %USERPROFILE%\.helapresenter. If the old .lanshu-presenter folder is
+  already there it keeps being used, so your keys, your downloaded FFmpeg
+  and your finished jobs carry over. Rename the folder yourself, with the
+  studio closed, to move to the new name.
+
 WINDOWS SMARTSCREEN
 
   The executable is not code-signed, so SmartScreen may warn on first run.
   Choose "More info" then "Run anyway", or build it yourself from source.
 
+done by HelaO2 PVT LTD
 MIT licensed. https://github.com/LasaKaru/lanshu-create-ai-presenter-video

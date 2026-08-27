@@ -32,6 +32,7 @@ var port = int.TryParse(cliPort, out var parsedPort)
 // mode it may be supplied so a caller does not have to scrape it from the console; a supplied one
 // is used verbatim, because inventing a different token would silently lock the caller out.
 var suppliedToken = ReadOption(args, "--token")
+                    ?? System.Environment.GetEnvironmentVariable("HELA_TOKEN")
                     ?? System.Environment.GetEnvironmentVariable("LANSHU_TOKEN");
 var token = string.IsNullOrWhiteSpace(suppliedToken)
     ? Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant()
@@ -48,7 +49,7 @@ if (!string.Equals(host, "127.0.0.1", StringComparison.Ordinal)
         "Refusing to bind to " + host + " with a generated token.");
     Console.Error.WriteLine(
         "Binding off loopback exposes the render and file APIs, so pass --token <value> "
-        + "(or set LANSHU_TOKEN) and keep it secret.");
+        + "(or set HELA_TOKEN) and keep it secret.");
     return 64;
 }
 
@@ -83,12 +84,12 @@ app.Use(async (context, next) =>
     var supplied = context.Request.Query["t"].ToString();
     if (string.IsNullOrEmpty(supplied))
     {
-        supplied = context.Request.Cookies["lanshu_token"] ?? string.Empty;
+        supplied = context.Request.Cookies["hela_token"] ?? string.Empty;
     }
 
     if (string.IsNullOrEmpty(supplied))
     {
-        supplied = context.Request.Headers["X-Lanshu-Token"].ToString();
+        supplied = context.Request.Headers["X-Hela-Token"].ToString();
     }
 
     var authorized = CryptographicOperations.FixedTimeEquals(
@@ -97,7 +98,7 @@ app.Use(async (context, next) =>
 
     if (authorized && context.Request.Query.ContainsKey("t"))
     {
-        context.Response.Cookies.Append("lanshu_token", token, new CookieOptions
+        context.Response.Cookies.Append("hela_token", token, new CookieOptions
         {
             HttpOnly = true,
             SameSite = SameSiteMode.Strict,
@@ -120,6 +121,7 @@ app.MapGet("/health", () => Results.Text("ok"));
 app.MapGet("/", () => ServeAsset(assets, "index.html", "text/html; charset=utf-8"));
 app.MapGet("/app.css", () => ServeAsset(assets, "app.css", "text/css; charset=utf-8"));
 app.MapGet("/app.js", () => ServeAsset(assets, "app.js", "text/javascript; charset=utf-8"));
+app.MapGet("/logo.svg", () => ServeAsset(assets, "logo.svg", "image/svg+xml"));
 
 app.MapGet("/api/environment", async (SettingsStore store, IHttpClientFactory factory, CancellationToken token) =>
 {
@@ -833,7 +835,7 @@ if (headless)
     // parsing a banner meant for a person.
     Console.WriteLine(JsonSerializer.Serialize(new
     {
-        service = "lanshu-presenter-studio",
+        service = "helapresenter",
         version = EnvironmentService.AppVersion,
         host,
         port,
@@ -854,10 +856,11 @@ if (headless)
 else
 {
     Console.WriteLine();
-    Console.WriteLine("  Lanshu AI Presenter Studio " + EnvironmentService.AppVersion);
+    Console.WriteLine("  HelaPresenter " + EnvironmentService.AppVersion);
     Console.WriteLine("  " + url);
     Console.WriteLine();
     Console.WriteLine("  Keep this window open while the studio is running. Press Ctrl+C to stop.");
+    Console.WriteLine("  done by HelaO2 PVT LTD");
     Console.WriteLine();
 }
 

@@ -259,10 +259,10 @@ async Task<int> RunAsync()
 
             if (result.ApprovalKind == "pilot")
             {
-                Console.WriteLine($"Review it with: lanshu pilot --job-dir \"{paths.Root}\" [--open]");
+                Console.WriteLine($"Review it with: hela pilot --job-dir \"{paths.Root}\" [--open]");
             }
 
-            Console.WriteLine($"Approve with: lanshu approve --job-dir \"{paths.Root}\" --{result.ApprovalKind.Replace('_', '-')}");
+            Console.WriteLine($"Approve with: hela approve --job-dir \"{paths.Root}\" --{result.ApprovalKind.Replace('_', '-')}");
             return 3;
 
         case PipelineOutcome.Completed when !string.IsNullOrEmpty(result.PreviewPath):
@@ -396,7 +396,7 @@ int Segments()
     }
 
     Console.WriteLine();
-    Console.WriteLine("Re-take one with:  lanshu retake --job-dir <dir> --index <n> [--say \"respelling\"]");
+    Console.WriteLine("Re-take one with:  hela retake --job-dir <dir> --index <n> [--say \"respelling\"]");
     return 0;
 }
 
@@ -405,7 +405,7 @@ async Task<int> DiagnosticsAsync()
     var output = line.Value("out")
                  ?? Path.Combine(
                      System.Environment.CurrentDirectory,
-                     $"lanshu-diagnostics-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.zip");
+                     $"hela-diagnostics-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.zip");
 
     // Including a job is opt-in: its record is the part most likely to carry something the
     // operator would not want to hand out, even redacted.
@@ -675,7 +675,7 @@ async Task<int> PublishAsync()
     {
         job.Plan.PublishApprovedFingerprint = fingerprint;
         jobs.Save(paths, job);
-        Console.WriteLine("Approved. Run 'lanshu publish' again to upload exactly this.");
+        Console.WriteLine("Approved. Run 'hela publish' again to upload exactly this.");
         return 0;
     }
 
@@ -683,7 +683,7 @@ async Task<int> PublishAsync()
     {
         Console.Error.WriteLine("This upload is not approved.");
         Console.Error.WriteLine("Read the plan above, then approve exactly it with:");
-        Console.Error.WriteLine("  lanshu publish --approve"
+        Console.Error.WriteLine("  hela publish --approve"
                                 + (string.IsNullOrWhiteSpace(visibility) ? string.Empty : $" --visibility {visibility}"));
         Console.Error.WriteLine();
         Console.Error.WriteLine("Changing the title, destination, visibility or the file retires an approval,");
@@ -757,7 +757,7 @@ int Brand()
 
         var replaced = service.Save(kit);
         Console.WriteLine($"{(replaced ? "Updated" : "Saved")} the brand kit '{kit.Name}'.");
-        Console.WriteLine($"Use it with:  lanshu init --brand {kit.Name}");
+        Console.WriteLine($"Use it with:  hela init --brand {kit.Name}");
         return 0;
     }
 
@@ -767,9 +767,9 @@ int Brand()
         Console.WriteLine("No brand kits yet.");
         Console.WriteLine();
         Console.WriteLine("Save the look of a job you liked:");
-        Console.WriteLine("  lanshu brand --save house --job-dir <dir>");
+        Console.WriteLine("  hela brand --save house --job-dir <dir>");
         Console.WriteLine("Or start one from scratch:");
-        Console.WriteLine("  lanshu brand --save house --accent \"#F4C430\" --caption-style tiktok");
+        Console.WriteLine("  hela brand --save house --accent \"#F4C430\" --caption-style tiktok");
         return 0;
     }
 
@@ -836,7 +836,7 @@ int BRoll()
         if (known is null)
         {
             Console.Error.WriteLine($"'{media}' is not one of this job's supporting files.");
-            Console.Error.WriteLine("Add it with 'lanshu init --media <file>' first.");
+            Console.Error.WriteLine("Add it with 'hela init --media <file>' first.");
             return 64;
         }
 
@@ -879,8 +879,8 @@ int BRoll()
         Console.WriteLine("Nothing is assigned by hand, so media is placed round-robin over the body chapters.");
     }
 
-    Console.WriteLine("Assign one with:  lanshu broll --set 2=diagram.png [--at 0.5] [--for 3]");
-    Console.WriteLine("Keep one clean:   lanshu broll --clear 2");
+    Console.WriteLine("Assign one with:  hela broll --set 2=diagram.png [--at 0.5] [--for 3]");
+    Console.WriteLine("Keep one clean:   hela broll --clear 2");
     return 0;
 }
 
@@ -892,7 +892,7 @@ int Retake()
 
     if (!line.Has("index"))
     {
-        Console.Error.WriteLine("--index <n> is required. Run 'lanshu segments' to see them.");
+        Console.Error.WriteLine("--index <n> is required. Run 'hela segments' to see them.");
         return 64;
     }
 
@@ -962,13 +962,13 @@ async Task<int> PilotAsync()
 
     Console.WriteLine();
     Console.WriteLine("Check identity, mouth timing, blinking, hands and lighting at normal speed.");
-    Console.WriteLine($"Approve with: lanshu approve --job-dir \"{paths.Root}\" --pilot");
+    Console.WriteLine($"Approve with: hela approve --job-dir \"{paths.Root}\" --pilot");
     return 0;
 }
 
 async Task BuildPilotSheetAsync(FfmpegService ffmpeg, string pilot, double duration, string destination)
 {
-    var scratch = Path.Combine(Path.GetTempPath(), $"lanshu-pilot-{Guid.NewGuid():N}");
+    var scratch = Path.Combine(Path.GetTempPath(), $"hela-pilot-{Guid.NewGuid():N}");
     Directory.CreateDirectory(scratch);
 
     try
@@ -1048,7 +1048,7 @@ async Task<int> LipSyncAsync()
             Console.WriteLine();
         }
 
-        Console.WriteLine("  lanshu lipsync --use wav2lip --dir ~/src/Wav2Lip [--checkpoint <file>]");
+        Console.WriteLine("  hela lipsync --use wav2lip --dir ~/src/Wav2Lip [--checkpoint <file>]");
         return 0;
     }
 
@@ -1067,7 +1067,7 @@ async Task<int> LipSyncAsync()
         if (configured.Configured)
         {
             Console.WriteLine();
-            Console.WriteLine("Verify it with: lanshu lipsync --test");
+            Console.WriteLine("Verify it with: hela lipsync --test");
         }
 
         return configured.Configured ? 0 : 1;
@@ -1084,9 +1084,9 @@ async Task<int> LipSyncAsync()
 
     PrintLipSyncStatus(service.Describe());
     Console.WriteLine();
-    Console.WriteLine("  lanshu lipsync --list              show the known tools");
-    Console.WriteLine("  lanshu lipsync --use <preset> --dir <checkout>");
-    Console.WriteLine("  lanshu lipsync --test              prove the configured tool runs");
+    Console.WriteLine("  hela lipsync --list              show the known tools");
+    Console.WriteLine("  hela lipsync --use <preset> --dir <checkout>");
+    Console.WriteLine("  hela lipsync --test              prove the configured tool runs");
     return 0;
 }
 
@@ -1131,7 +1131,7 @@ async Task<int> DoctorAsync()
         }
 
         Console.Error.WriteLine();
-        Console.Error.WriteLine("Run 'lanshu doctor --install' to download a portable FFmpeg build.");
+        Console.Error.WriteLine("Run 'hela doctor --install' to download a portable FFmpeg build.");
     }
 
     return report.Ok ? 0 : 1;
@@ -1230,7 +1230,8 @@ int Config()
 
 int Version()
 {
-    Console.WriteLine($"Lanshu AI Presenter Studio {EnvironmentService.AppVersion}");
+    Console.WriteLine($"HelaPresenter {EnvironmentService.AppVersion}");
+    Console.WriteLine("done by HelaO2 PVT LTD");
     return 0;
 }
 
@@ -1259,11 +1260,11 @@ JobPaths ResolvePaths()
 int Help(int exitCode)
 {
     Console.WriteLine($"""
-        Lanshu AI Presenter Studio {EnvironmentService.AppVersion}
+        HelaPresenter {EnvironmentService.AppVersion}
         Turn a script or topic plus one authorized presenter image into a finished video.
 
         USAGE
-          lanshu <command> [options]
+          hela <command> [options]
 
         COMMANDS
           init          Create a job directory from a topic or a script and a presenter image
@@ -1289,17 +1290,17 @@ int Help(int exitCode)
           version       Print the version
 
         EXAMPLES
-          lanshu doctor --install
+          hela doctor --install
 
-          lanshu init --topic "Explain context engineering in one minute" \
-                      --presenter-image ./presenter.png \
-                      --duration 60 --aspect 9:16 --reviewed --rights-confirmed \
-                      --adult-presenter-confirmed
+          hela init --topic "Explain context engineering in one minute" \
+                    --presenter-image ./presenter.png \
+                    --duration 60 --aspect 9:16 --reviewed --rights-confirmed \
+                    --adult-presenter-confirmed
 
-          lanshu run --preview --job-dir ~/.lanshu-presenter/jobs/explain-context-engineering-20260825-1200
-          lanshu run --job-dir ~/.lanshu-presenter/jobs/explain-context-engineering-20260825-1200
+          hela run --preview --job-dir ~/.helapresenter/jobs/explain-context-engineering-20260825-1200
+          hela run --job-dir ~/.helapresenter/jobs/explain-context-engineering-20260825-1200
 
-          lanshu finalize --input renders/rendered.mkv --output outputs --stem my-video
+          hela finalize --input renders/rendered.mkv --output outputs --stem my-video
 
         OPTIONS FOR init
           --job-dir <dir>            Where to create the job (defaults to the workspace)

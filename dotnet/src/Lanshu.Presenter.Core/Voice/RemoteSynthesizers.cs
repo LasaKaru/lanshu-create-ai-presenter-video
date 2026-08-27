@@ -145,7 +145,7 @@ public sealed class ElevenLabsSynthesizer : ISpeechSynthesizer, IVoiceCloner
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(name), "name");
         content.Add(
-            new StringContent("Created by Lanshu AI Presenter Studio from an authorized sample."),
+            new StringContent("Created by HelaPresenter from an authorized sample."),
             "description");
 
         var bytes = await File.ReadAllBytesAsync(full, cancellationToken).ConfigureAwait(false);
@@ -391,7 +391,7 @@ public sealed class AzureSpeechSynthesizer : ISpeechSynthesizer
         };
         message.Headers.Add("Ocp-Apim-Subscription-Key", apiKey);
         message.Headers.Add("X-Microsoft-OutputFormat", "riff-48khz-16bit-mono-pcm");
-        message.Headers.Add("User-Agent", "lanshu-presenter");
+        message.Headers.Add("User-Agent", "helapresenter");
 
         using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
         await ElevenLabsSynthesizer

@@ -1234,6 +1234,7 @@ async function saveTimeline() {
  */
 const ZH = {
   // Shell and navigation
+  'done by HelaO2 PVT LTD': '由 HelaO2 PVT LTD 制作',
   'Create': '新建',
   'Jobs': '任务',
   'Settings': '设置',
@@ -1457,7 +1458,10 @@ function initLanguage() {
 
   let stored = null;
   try {
-    stored = localStorage.getItem('lanshu_ui_language');
+    // The key was renamed with the product; reading the old one keeps an existing
+    // choice rather than silently flipping someone back to their browser's language.
+    stored = localStorage.getItem('hela_ui_language')
+      || localStorage.getItem('lanshu_ui_language');
   } catch (error) {
     // A browser with site data blocked still gets a working studio, just not a remembered choice.
     stored = null;
@@ -1471,7 +1475,7 @@ function initLanguage() {
   select.addEventListener('change', () => {
     applyLanguage(select.value);
     try {
-      localStorage.setItem('lanshu_ui_language', select.value);
+      localStorage.setItem('hela_ui_language', select.value);
     } catch (error) {
       /* remembering the choice is a convenience, not a requirement */
     }

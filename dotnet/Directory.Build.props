@@ -6,8 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <InvariantGlobalization>false</InvariantGlobalization>
-    <Product>Lanshu AI Presenter Studio</Product>
-    <Company>lanshu-create-ai-presenter-video</Company>
+    <Product>HelaPresenter</Product>
+    <Company>HelaO2 PVT LTD</Company>
     <Copyright>MIT Licensed</Copyright>
     <Version>1.0.0</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>

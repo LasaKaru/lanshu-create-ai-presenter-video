@@ -1,4 +1,4 @@
-# Lanshu AI Presenter Studio (.NET)
+# HelaPresenter (.NET)
 
 A Windows-first desktop application that runs the same presenter-video workflow as the
 Codex skill in the repository root. Give it a script or a topic plus one authorized
@@ -9,8 +9,8 @@ sheet, and a QA report.
 It ships as a **single self-contained executable**. No .NET runtime, no installer.
 
 ```
-LanshuPresenterStudio.exe   the studio (opens a local UI in your browser)
-lanshu.exe                  the same pipeline as a CLI
+HelaPresenter.exe   the studio (opens a local UI in your browser)
+hela.exe            the same pipeline as a CLI
 ```
 
 ## What it does
@@ -73,7 +73,7 @@ audio alone.
 
 A full delivery render does two encodes, a loudness pass, a contact sheet and the acceptance
 gates. When you only need to see whether the captions and callouts land in the right place, use
-**Fast preview** (or `lanshu run --preview`). It renders a small proxy at the same aspect ratio
+**Fast preview** (or `hela run --preview`). It renders a small proxy at the same aspect ratio
 with an ultrafast preset and stops there — roughly five times quicker on a 45-second video.
 
 Caption and callout geometry is authored against the delivery resolution and scaled by libass, so
@@ -103,9 +103,9 @@ re-speaks everything, because mixing two voices in one narration is never what y
 To fix a single sentence — a mispronounced name, an odd emphasis — re-take just that segment:
 
 ```bash
-lanshu segments --job-dir <dir>
-lanshu retake  --job-dir <dir> --index 3 --say "measured wunce, respected everywhere"
-lanshu run     --job-dir <dir>
+hela segments --job-dir <dir>
+hela retake   --job-dir <dir> --index 3 --say "measured wunce, respected everywhere"
+hela run      --job-dir <dir>
 ```
 
 `--say` changes only **what reaches the speech engine**. Captions and keyword anchors keep the
@@ -143,13 +143,13 @@ own licences, so you install one and point the studio at it.
 Which generator produced the motion and which tool synced the mouth are recorded as separate
 capabilities, because they are separate facts.
 
-`lanshu lipsync` removes the fiddly part — knowing the right command line for the tool you
+`hela lipsync` removes the fiddly part — knowing the right command line for the tool you
 installed, and finding out whether it actually runs *before* a real job depends on it:
 
 ```bash
-lanshu lipsync --list                              # the tools with known command lines
-lanshu lipsync --use wav2lip --dir ~/src/Wav2Lip   # fills in the command, args and checkpoint
-lanshu lipsync --test                              # PASS  wav2lip produced 2.00s of video
+hela lipsync --list                              # the tools with known command lines
+hela lipsync --use wav2lip --dir ~/src/Wav2Lip   # fills in the command, args and checkpoint
+hela lipsync --test                              # PASS  wav2lip produced 2.00s of video
 ```
 
 `--test` builds a two-second synthetic face and tone, runs the configured tool over them, and
@@ -213,9 +213,9 @@ A kit is the reusable half of a video's look — accent colour, caption font and
 music bed, and the title and end cards — saved once and applied by name:
 
 ```bash
-lanshu brand --save house --job-dir <a job you liked>   # capture a look you already tuned
-lanshu brand --save house --accent "#F4C430" --caption-style tiktok --intro "Field notes"
-lanshu init --brand house ...                            # apply it to the next job
+hela brand --save house --job-dir <a job you liked>   # capture a look you already tuned
+hela brand --save house --accent "#F4C430" --caption-style tiktok --intro "Field notes"
+hela init --brand house ...                           # apply it to the next job
 ```
 
 A kit only carries presentation, never what is said, how long it runs or which voice speaks it —
@@ -247,13 +247,13 @@ and the QA duration gate, which is told the card length rather than having its t
 
 ## Choosing what goes where
 
-Supporting media defaults to round-robin over the body chapters. `lanshu broll` replaces that with
+Supporting media defaults to round-robin over the body chapters. `hela broll` replaces that with
 your own decisions:
 
 ```bash
-lanshu broll                                  # what is on each chapter now
-lanshu broll --set 2=diagram.png --at 0.5 --for 3
-lanshu broll --clear 2                        # keep this chapter clean
+hela broll                                  # what is on each chapter now
+hela broll --set 2=diagram.png --at 0.5 --for 3
+hela broll --clear 2                        # keep this chapter clean
 ```
 
 `--clear` records an explicit empty assignment rather than deleting the row, so "leave this one
@@ -341,7 +341,7 @@ actually has.
 
 ## Publishing
 
-`lanshu publish` uploads a finished video to whatever destination is configured. It is
+`hela publish` uploads a finished video to whatever destination is configured. It is
 provider-neutral in the same way the talking-head route is — endpoint, auth header, metadata
 template and the JSON path to read the id back out.
 
@@ -349,9 +349,9 @@ Publishing is the one action here that cannot be undone from this machine, so it
 shape as the paid-generation gate:
 
 ```bash
-lanshu publish              # prints exactly what would be uploaded, and refuses
-lanshu publish --approve    # approves that specific plan
-lanshu publish              # uploads it
+hela publish              # prints exactly what would be uploaded, and refuses
+hela publish --approve    # approves that specific plan
+hela publish              # uploads it
 ```
 
 The approval is a fingerprint of the plan, not a boolean. Changing the title, the destination, the
@@ -365,8 +365,8 @@ publication.
 A CSV of topics becomes a folder of videos, made one at a time:
 
 ```bash
-lanshu batch --csv queue.csv --presenter-image face.png --reviewed --rights-confirmed
-lanshu batch --csv queue.csv --list      # what would be made, and what already was
+hela batch --csv queue.csv --presenter-image face.png --reviewed --rights-confirmed
+hela batch --csv queue.csv --list      # what would be made, and what already was
 ```
 
 The header names the columns and unknown ones are ignored, so a spreadsheet someone keeps for
@@ -385,15 +385,15 @@ what it is — waiting for a person — and the batch moves on.
 
 ## Headless mode
 
-`LanshuPresenterStudio --headless` runs the same API with the browser affordances removed:
+`HelaPresenter --headless` runs the same API with the browser affordances removed:
 nothing is opened, the port is fixed rather than picked at random, and startup prints one
 machine-readable line with the address, the token and the endpoints.
 
 ```bash
-LanshuPresenterStudio --headless --port 8760 --token "$LANSHU_TOKEN"
+HelaPresenter --headless --port 8760 --token "$HELA_TOKEN"
 ```
 
-The token may be supplied (`--token`, or `LANSHU_TOKEN`) so a client already knows it instead of
+The token may be supplied (`--token`, or `HELA_TOKEN`) so a client already knows it instead of
 scraping a console banner. Binding beyond loopback with `--host` is refused unless you supply a
 token of your own — the render and file APIs are not something to expose on a generated secret
 the operator has never seen.
@@ -412,7 +412,7 @@ every node keeps its original text rather than being translated a second time in
 
 ## Update checks
 
-`lanshu update` asks the releases feed whether a newer version exists. It never blocks anything:
+`hela update` asks the releases feed whether a newer version exists. It never blocks anything:
 its own short timeout, and every failure is an answer rather than an exception. It is only ever a
 notification — nothing is downloaded and nothing is replaced, because silently swapping an
 executable someone is running is a surprise, not a convenience.
@@ -422,7 +422,7 @@ Versions compare numerically, so 1.10.0 is correctly newer than 1.9.0. Turn it o
 
 ## Diagnostics
 
-`lanshu diagnostics` writes a zip to attach to a bug report: version and OS, the resolved ffmpeg
+`hela diagnostics` writes a zip to attach to a bug report: version and OS, the resolved ffmpeg
 and its version, redacted settings, the names of the credentials that are set, and — with
 `--job-dir` — one job's manifest, QA reports and the tail of its run log.
 
@@ -486,7 +486,7 @@ These are enforced by the code, not left to the operator:
   watch it.
 - After three rejected paid candidates the run stops and summarizes rather than continuing to
   spend.
-- Credentials live in `~/.lanshu-presenter/secrets.json` (user-only permissions on Unix) and
+- Credentials live in `~/.helapresenter/secrets.json` (user-only permissions on Unix) and
   are never written into a job folder. Archived provider requests have credentials redacted,
   embedded media replaced with a size marker, and signed-URL query strings stripped.
 - Reports store filenames and job-relative paths only, so a shared QA report never leaks a
@@ -496,7 +496,7 @@ These are enforced by the code, not left to the operator:
 
 Download the archive for your platform from the
 [Releases page](https://github.com/LasaKaru/lanshu-create-ai-presenter-video/releases),
-unzip it, and run `LanshuPresenterStudio.exe`.
+unzip it, and run `HelaPresenter.exe`.
 
 Every push also produces a build on the
 [Actions page](https://github.com/LasaKaru/lanshu-create-ai-presenter-video/actions)
@@ -506,8 +506,16 @@ under the run's **Artifacts** section.
 
 The studio needs `ffmpeg` and `ffprobe`. If they are not on the machine, open the
 **Environment** tab and press **Install FFmpeg** — it downloads a portable build into
-`~/.lanshu-presenter/tools` without touching anything system wide. The CLI equivalent is
-`lanshu doctor --install`.
+`~/.helapresenter/tools` without touching anything system wide. The CLI equivalent is
+`hela doctor --install`.
+
+### Upgrading from a build named Lanshu
+
+The product was renamed to HelaPresenter, and with it the per-user folder: `~/.helapresenter`
+on Unix, `%USERPROFILE%\.helapresenter` on Windows. A machine that already has the old
+`.lanshu-presenter` folder keeps using it, so saved keys, a downloaded FFmpeg and existing jobs
+carry over untouched. To move to the new name, rename the folder while the studio is closed.
+`LANSHU_HOME` and `LANSHU_TOKEN` are still read as fallbacks for `HELA_HOME` and `HELA_TOKEN`.
 
 ### Build from source
 
@@ -532,30 +540,30 @@ and macOS via `-p:EnableWindowsTargeting=true`, which the scripts already pass.
 ## Using the CLI
 
 ```bash
-lanshu doctor --install
+hela doctor --install
 
-lanshu init --topic "Explain context engineering in one minute" \
+hela init --topic "Explain context engineering in one minute" \
             --presenter-image ./presenter.png \
             --duration 60 --aspect 9:16 \
             --reviewed --rights-confirmed --adult-presenter-confirmed
 
-lanshu run --job-dir ~/.lanshu-presenter/jobs/explain-context-engineering-20260825-1200
+hela run --job-dir ~/.helapresenter/jobs/explain-context-engineering-20260825-1200
 ```
 
 Add `--preview` to `run` for the fast proxy, and `--review-script` to `init` to pause for a script
-review (approve it with `lanshu approve --script`). `--also-aspect` is repeatable;
+review (approve it with `hela approve --script`). `--also-aspect` is repeatable;
 `--no-punch-ins` and `--no-publishing-kit` turn off the extras.
 
-`lanshu pilot` shows a pilot's real duration, format and provider, and lays its frames out as a
+`hela pilot` shows a pilot's real duration, format and provider, and lays its frames out as a
 contact sheet so it can be reviewed without a video player; `--open` launches it in the default
 player.
 
 Other commands: `preflight`, `approve`, `finalize`, `segments`, `retake`, `pilot`, `lipsync`,
 `brand`, `broll`, `publish`, `batch`, `diagnostics`, `update`, `voices`, `jobs`,
 `config`, `version`.
-`lanshu` with no arguments prints the full reference.
+`hela` with no arguments prints the full reference.
 
-`lanshu run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is
+`hela run` exits `0` when the acceptance gates pass, `1` when a gate fails, `3` when it is
 waiting on an approval, and `2` on error — so it drops straight into a script or CI job.
 
 ## Job layout
@@ -584,7 +592,7 @@ dotnet/
 │   ├── Presenter/ Timeline/       generators, remote job client, compositor
 │   ├── Delivery/ Qa/              master and share encodes, acceptance gates
 │   └── Pipeline/                  the state-machine runner
-├── src/Lanshu.Presenter.Cli/      the lanshu command
+├── src/Lanshu.Presenter.Cli/      the hela command
 ├── src/Lanshu.Presenter.App/      the studio: minimal API + embedded UI
 └── tests/Lanshu.Presenter.Tests/
 ```
@@ -601,3 +609,7 @@ dotnet/
 - `PublishSingleFile` and `SelfContained` are passed on the publish command rather than set in the
   project files, because setting them there forces a runtime identifier onto plain `dotnet build`
   and moves its output directory.
+
+---
+
+HelaPresenter — done by HelaO2 PVT LTD.

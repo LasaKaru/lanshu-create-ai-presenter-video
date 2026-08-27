@@ -32,12 +32,25 @@ public static class ToolLocator
         }
     }
 
-    /// <summary>Per-user home for downloaded tools, settings and the default workspace.</summary>
+    /// <summary>The folder this release keeps its data in.</summary>
+    private const string DataDirectoryName = ".helapresenter";
+
+    /// <summary>The folder releases before the HelaPresenter rename used.</summary>
+    private const string LegacyDataDirectoryName = ".lanshu-presenter";
+
+    /// <summary>
+    /// Per-user home for downloaded tools, settings and the default workspace.
+    ///
+    /// A rename must not strand anyone. If the current folder does not exist yet but the one older
+    /// builds wrote to does, that older folder is what gets used — a machine with saved keys, a
+    /// downloaded FFmpeg and a year of jobs in it carries on working instead of starting empty.
+    /// </summary>
     public static string DataDirectory
     {
         get
         {
-            var overridePath = System.Environment.GetEnvironmentVariable("LANSHU_HOME");
+            var overridePath = System.Environment.GetEnvironmentVariable("HELA_HOME")
+                               ?? System.Environment.GetEnvironmentVariable("LANSHU_HOME");
             if (!string.IsNullOrWhiteSpace(overridePath))
             {
                 return Path.GetFullPath(overridePath);
@@ -49,8 +62,20 @@ public static class ToolLocator
                 home = AppDirectory;
             }
 
-            return Path.Combine(home, ".lanshu-presenter");
+            return ResolveDataDirectory(home);
         }
+    }
+
+    internal static string ResolveDataDirectory(string home)
+    {
+        var current = Path.Combine(home, DataDirectoryName);
+        if (Directory.Exists(current))
+        {
+            return current;
+        }
+
+        var legacy = Path.Combine(home, LegacyDataDirectoryName);
+        return Directory.Exists(legacy) ? legacy : current;
     }
 
     public static string ToolsDirectory => Path.Combine(DataDirectory, "tools");

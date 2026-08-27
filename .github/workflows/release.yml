@@ -60,7 +60,7 @@ jobs:
             echo "Signing $(basename "$exe")"
             osslsigncode sign \
               -pkcs12 /tmp/cert.pfx -pass "$WINDOWS_CERT_PASSWORD" \
-              -n "Lanshu AI Presenter Studio" \
+              -n "HelaPresenter" \
               -i "https://github.com/LasaKaru/lanshu-create-ai-presenter-video" \
               -t "http://timestamp.digicert.com" \
               -in "$exe" -out "$exe.signed"
@@ -81,7 +81,7 @@ jobs:
         working-directory: ${{ github.workspace }}/out
         run: |
           for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
-            (cd "$rid" && zip -r "../lanshu-presenter-studio-$rid.zip" .)
+            (cd "$rid" && zip -r "../helapresenter-$rid.zip" .)
           done
           sha256sum ./*.zip > SHA256SUMS.txt
           ls -la
@@ -90,7 +90,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Lanshu AI Presenter Studio ${{ github.event.inputs.tag || github.ref_name }}
+          name: HelaPresenter ${{ github.event.inputs.tag || github.ref_name }}
           generate_release_notes: true
           append_body: true
           body: |

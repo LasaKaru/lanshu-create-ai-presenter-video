@@ -92,12 +92,12 @@ python3 "$SKILL_DIR/scripts/preflight.py" ~/Videos/my-presenter-video/job.json
 
 ## Windows 桌面应用（.NET）
 
-除了 Codex Skill，本仓库还提供一个同样工作流的 .NET 桌面应用：**Lanshu AI Presenter Studio**。
+除了 Codex Skill，本仓库还提供一个同样工作流的 .NET 桌面应用：**HelaPresenter**。
 它是单个自包含可执行文件，不需要安装 .NET 运行时，也没有安装程序。
 
 ```
-LanshuPresenterStudio.exe   图形界面（在浏览器中打开本地界面）
-lanshu.exe                  同一套流程的命令行版本
+HelaPresenter.exe   图形界面（在浏览器中打开本地界面）
+hela.exe            同一套流程的命令行版本
 ```
 
 - 下载：[Releases](https://github.com/LasaKaru/lanshu-create-ai-presenter-video/releases)，
@@ -174,3 +174,7 @@ dotnet test LanshuPresenter.sln
 ## 贡献
 
 欢迎通过 Issue 提交使用反馈，也欢迎用 Pull Request 改进工作流、兼容性和质量检查。
+
+---
+
+HelaPresenter — done by HelaO2 PVT LTD.

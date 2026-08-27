@@ -62,7 +62,7 @@ public sealed class UpdateChecker
             using var request = new HttpRequestMessage(HttpMethod.Get, feed);
             request.Headers.Add("Accept", "application/vnd.github+json");
             // GitHub rejects an unidentified client, and identifying honestly is the right thing.
-            request.Headers.Add("User-Agent", $"lanshu-presenter-studio/{current}");
+            request.Headers.Add("User-Agent", $"helapresenter/{current}");
 
             using var response = await _httpClient.SendAsync(request, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)

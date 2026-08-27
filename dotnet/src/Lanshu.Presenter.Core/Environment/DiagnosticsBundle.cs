@@ -84,7 +84,7 @@ public static class DiagnosticsBundle
     private static string BuildAbout()
     {
         var builder = new StringBuilder();
-        builder.AppendLine("Lanshu AI Presenter Studio diagnostics");
+        builder.AppendLine("HelaPresenter diagnostics (HelaO2 PVT LTD)");
         builder.AppendLine($"version    : {EnvironmentService.AppVersion}");
         builder.AppendLine($"collected  : {DateTimeOffset.UtcNow:O}");
         builder.AppendLine($"os         : {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
